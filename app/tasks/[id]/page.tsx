@@ -11,18 +11,15 @@ import {
   Clock,
   DollarSign,
   ExternalLink,
+  Hourglass,
   Loader2,
   MapPin,
   Phone,
   Users,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/components/auth-provider";
@@ -44,7 +41,10 @@ import {
 } from "@/lib/utils";
 import {
   POSITION_LABEL,
+  POSITIONS,
+  RATE_UNIT_LABEL,
   rateFor,
+  rateUnitFor,
   type Position,
   type Task,
   type Registration,
@@ -55,10 +55,9 @@ export default function TaskDetailPage() {
   const { user, signInWithGoogle } = useAuth();
   const { toast } = useToast();
   const [task, setTask] = useState<Task | null>(null);
-  const [taCount, setTaCount] = useState(0);
-  const [mtCount, setMtCount] = useState(0);
+  const [counts, setCounts] = useState<Record<Position, number>>({ mt: 0, ta: 0 });
   const [myReg, setMyReg] = useState<Registration | null>(null);
-  const [position, setPosition] = useState<Position>("ta");
+  const [position, setPosition] = useState<Position>("mt");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -70,12 +69,11 @@ export default function TaskDetailPage() {
       const t = await getTask(id);
       setTask(t);
       if (t) {
-        const [ta, mt] = await Promise.all([
-          countConfirmed(t.id, "ta"),
+        const [mt, ta] = await Promise.all([
           countConfirmed(t.id, "mt"),
+          countConfirmed(t.id, "ta"),
         ]);
-        setTaCount(ta);
-        setMtCount(mt);
+        setCounts({ mt, ta });
         if (user) {
           const regs = await listRegistrationsForTask(t.id);
           setMyReg(regs.find((r) => r.userId === user.uid) ?? null);
@@ -107,7 +105,7 @@ export default function TaskDetailPage() {
     }
     setSubmitting(true);
     try {
-      const res = await registerForTask({
+      await registerForTask({
         taskId: task.id,
         userId: user.uid,
         userEmail: user.email ?? "",
@@ -115,12 +113,7 @@ export default function TaskDetailPage() {
         userPhone: phone,
         position,
       });
-      toast(
-        res.status === "confirmed" ? "success" : "info",
-        res.status === "confirmed"
-          ? "報名成功 — 已確認"
-          : "此職位已額滿，你已加入後備名單",
-      );
+      toast("success", "已提交報名，等待管理員確認");
       await refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "報名失敗";
@@ -148,7 +141,7 @@ export default function TaskDetailPage() {
 
   if (!task) {
     return (
-      <div className="rounded-xl border border-dashed border-border p-8 text-center">
+      <div className="rounded-[20px] glass p-8 text-center">
         <Briefcase className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
         <h2 className="text-lg font-medium mb-2">找不到此工作</h2>
         <Button asChild variant="outline">
@@ -161,7 +154,11 @@ export default function TaskDetailPage() {
   const start = toDate(task.startAt);
   const end = toDate(task.endAt);
   const hours = durationHours(start, end);
+  const deadline = toDate(task.deadline ?? null);
+  const meetAt = toDate(task.meetAt ?? null);
   const isOpen = task.status === "open";
+  const pastDeadline = !!deadline && new Date() > deadline;
+  const unit = rateUnitFor(task);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -203,12 +200,13 @@ export default function TaskDetailPage() {
             <InfoRow icon={<Clock className="h-4 w-4" />} label="時間">
               {formatTimeRange(start, end)}（{hours} 小時）
             </InfoRow>
-            <InfoRow icon={<DollarSign className="h-4 w-4" />} label="時薪">
-              TA {formatCurrency(rateFor(task, "ta"))} · MT{" "}
-              {formatCurrency(rateFor(task, "mt"))}／小時
+            <InfoRow icon={<DollarSign className="h-4 w-4" />} label="薪酬">
+              MT {formatCurrency(rateFor(task, "mt"))} · TA{" "}
+              {formatCurrency(rateFor(task, "ta"))}
+              {RATE_UNIT_LABEL[unit]}
             </InfoRow>
             <InfoRow icon={<Users className="h-4 w-4" />} label="名額">
-              TA {taCount}/{task.positions.ta} · MT {mtCount}/{task.positions.mt}
+              MT {counts.mt}/{task.positions.mt} · TA {counts.ta}/{task.positions.ta}
             </InfoRow>
             {task.address && (
               <div className="md:col-span-2">
@@ -228,24 +226,52 @@ export default function TaskDetailPage() {
                 </InfoRow>
               </div>
             )}
+            {deadline && (
+              <InfoRow icon={<Hourglass className="h-4 w-4" />} label="報名截止">
+                <span className={pastDeadline ? "text-destructive" : undefined}>
+                  {formatDate(deadline)} {deadline.toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit" })}
+                  {pastDeadline && "（已截止）"}
+                </span>
+              </InfoRow>
+            )}
+            {task.meetUrl && (
+              <InfoRow icon={<Video className="h-4 w-4" />} label="線上會議">
+                <a
+                  href={task.meetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  加入 Google Meet
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                {meetAt && (
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    {formatDate(meetAt)} {meetAt.toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </InfoRow>
+            )}
           </div>
 
           {task.notes && (
-            <div className="rounded-lg border border-border bg-muted p-4">
+            <div className="rounded-2xl border border-white/60 bg-white/50 p-4">
               <p className="text-xs text-muted-foreground mb-1">備註</p>
               <p className="text-sm whitespace-pre-wrap">{task.notes}</p>
             </div>
           )}
 
           {isOpen && (
-            <div className="border-t border-border pt-6 space-y-4">
+            <div className="border-t border-white/60 pt-6 space-y-4">
               {myReg ? (
-                <div className="rounded-lg border border-border bg-muted p-4 space-y-3">
+                <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-3">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-[hsl(var(--success))]" />
+                    <CheckCircle2
+                      className={`h-5 w-5 ${myReg.status === "confirmed" ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}
+                    />
                     <span className="font-medium">
                       你已報名 {POSITION_LABEL[myReg.position]} —{" "}
-                      {myReg.status === "confirmed" ? "已確認" : "後備"}
+                      {myReg.status === "confirmed" ? "已確認" : "待管理員審核"}
                     </span>
                   </div>
                   <Button variant="outline" onClick={handleCancel} className="w-full sm:w-auto">
@@ -253,14 +279,18 @@ export default function TaskDetailPage() {
                   </Button>
                 </div>
               ) : !user ? (
-                <div className="rounded-lg border border-border bg-muted p-4 text-center space-y-3">
+                <div className="rounded-2xl border border-white/60 bg-white/50 p-4 text-center space-y-3">
                   <p className="text-sm text-muted-foreground">
                     請先用 Google 登入才能報名
                   </p>
                   <Button onClick={() => signInWithGoogle()}>Google 登入</Button>
                 </div>
+              ) : pastDeadline ? (
+                <div className="rounded-2xl border border-white/60 bg-white/50 p-4 text-center text-sm text-muted-foreground">
+                  已過報名截止時間
+                </div>
               ) : !phone ? (
-                <div className="rounded-lg border border-border bg-muted p-4 space-y-3">
+                <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-3">
                   <div className="flex items-start gap-2">
                     <Phone className="h-5 w-5 shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
                     <div>
@@ -279,22 +309,18 @@ export default function TaskDetailPage() {
                   <div className="space-y-2">
                     <Label>選擇職位</Label>
                     <div className="grid grid-cols-2 gap-3">
-                      <PositionOption
-                        label="TA 助教"
-                        rate={rateFor(task, "ta")}
-                        current={taCount}
-                        total={task.positions.ta}
-                        selected={position === "ta"}
-                        onSelect={() => setPosition("ta")}
-                      />
-                      <PositionOption
-                        label="MT 主導師"
-                        rate={rateFor(task, "mt")}
-                        current={mtCount}
-                        total={task.positions.mt}
-                        selected={position === "mt"}
-                        onSelect={() => setPosition("mt")}
-                      />
+                      {POSITIONS.map((pos) => (
+                        <PositionOption
+                          key={pos}
+                          label={POSITION_LABEL[pos]}
+                          rate={rateFor(task, pos)}
+                          unit={unit}
+                          current={counts[pos]}
+                          total={task.positions[pos]}
+                          selected={position === pos}
+                          onSelect={() => setPosition(pos)}
+                        />
+                      ))}
                     </div>
                   </div>
 
@@ -317,11 +343,11 @@ export default function TaskDetailPage() {
                         報名中...
                       </>
                     ) : (
-                      "確認報名"
+                      "提交報名"
                     )}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    若該職位名額已滿，系統會自動將你加入後備名單。
+                    提交後會進入待審核名單，管理員手動確認後你會收到確認電郵。
                   </p>
                 </div>
               )}
@@ -356,6 +382,7 @@ function InfoRow({
 function PositionOption({
   label,
   rate,
+  unit,
   current,
   total,
   selected,
@@ -363,6 +390,7 @@ function PositionOption({
 }: {
   label: string;
   rate: number;
+  unit: "hourly" | "daily";
   current: number;
   total: number;
   selected: boolean;
@@ -373,10 +401,10 @@ function PositionOption({
     <button
       type="button"
       onClick={onSelect}
-      className={`text-left rounded-lg border p-3 transition-colors ${
+      className={`press text-left rounded-2xl border p-3 transition-colors ${
         selected
           ? "border-primary ring-1 ring-primary/40 bg-primary/5"
-          : "border-border hover:border-primary/50"
+          : "border-border hover:border-primary/50 bg-white/50"
       } ${full ? "opacity-70" : ""}`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -388,7 +416,8 @@ function PositionOption({
         )}
       </div>
       <p className="text-xs text-muted-foreground mt-1">
-        {formatCurrency(rate)}／小時
+        {formatCurrency(rate)}
+        {RATE_UNIT_LABEL[unit]}
       </p>
       <p className="text-xs text-muted-foreground">
         已確認 {current} / {total} 名

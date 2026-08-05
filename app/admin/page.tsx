@@ -28,7 +28,7 @@ import { useToast } from "@/components/toaster-context";
 import { listAllTasks, cancelTask, reopenTask, deleteTask } from "@/lib/db";
 import { toDate } from "@/lib/db";
 import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
-import { TASK_STATUS_LABEL, rateFor } from "@/lib/types";
+import { TASK_STATUS_LABEL, RATE_UNIT_LABEL, rateFor, rateUnitFor } from "@/lib/types";
 import type { Task } from "@/lib/types";
 
 export default function AdminPage() {
@@ -197,11 +197,12 @@ function AdminTaskCard({
           </div>
           <div className="flex items-center gap-2 text-xs">
             <DollarSign className="h-3.5 w-3.5" />
-            TA {formatCurrency(rateFor(task, "ta"))} · MT {formatCurrency(rateFor(task, "mt"))}／小時
+            MT {formatCurrency(rateFor(task, "mt"))} · TA {formatCurrency(rateFor(task, "ta"))}
+            {RATE_UNIT_LABEL[rateUnitFor(task)]}
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5" />
-            TA {task.positions.ta} · MT {task.positions.mt}
+            MT {task.positions.mt} · TA {task.positions.ta}
           </div>
         </CardDescription>
       </CardHeader>

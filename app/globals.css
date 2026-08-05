@@ -1,10 +1,12 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 220 20% 97%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
@@ -13,16 +15,16 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 214 90% 45%;
+    --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 214 32% 96%;
+    --secondary: 220 20% 94%;
     --secondary-foreground: 222 47% 11%;
 
-    --muted: 214 32% 96%;
+    --muted: 220 20% 94%;
     --muted-foreground: 215 16% 45%;
 
-    --accent: 214 90% 45%;
+    --accent: 25 95% 53%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 72% 46%;
@@ -34,11 +36,11 @@
     --warning: 32 90% 44%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 214 28% 89%;
-    --input: 214 28% 89%;
-    --ring: 214 90% 45%;
+    --border: 220 16% 88%;
+    --input: 220 16% 88%;
+    --ring: 25 95% 53%;
 
-    --radius: 0.625rem;
+    --radius: 1.25rem;
   }
 }
 
@@ -49,21 +51,87 @@
   html,
   body {
     @apply bg-background text-foreground antialiased;
+    font-family:
+      "Inter",
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Text",
+      "Segoe UI",
+      sans-serif;
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
   }
   body {
-    background-color: hsl(var(--background));
     min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(249, 115, 22, 0.08), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(59, 130, 246, 0.06), transparent 55%),
+      hsl(var(--background));
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+    font-weight: 700;
   }
 }
 
 @layer components {
-  .surface {
-    @apply bg-card border border-border rounded-xl;
+  /* Glassmorphism surface per spec */
+  .glass {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 12px 32px -12px rgba(15, 23, 42, 0.12);
   }
-  .card-hover {
-    @apply transition-shadow duration-200 hover:shadow-md;
+
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+  }
+
+  .lift {
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .lift:hover {
+    transform: translateY(-4px);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.05),
+      0 24px 48px -16px rgba(15, 23, 42, 0.22);
+  }
+  .lift:active {
+    transform: translateY(-1px) scale(0.98);
+  }
+
+  .press {
+    transition: transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .press:active {
+    transform: scale(0.96);
+  }
+}
+
+@layer utilities {
+  .animate-fade-up {
+    animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

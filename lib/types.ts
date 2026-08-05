@@ -1,10 +1,15 @@
 import type { Timestamp } from "firebase/firestore";
 
-export type Position = "ta" | "mt";
+export type Position = "mt" | "ta";
+
+export const POSITIONS: Position[] = ["mt", "ta"];
 
 export type TaskStatus = "open" | "closed" | "cancelled";
 
+/** waitlist = pending admin review; confirmed = admin approved */
 export type RegistrationStatus = "confirmed" | "waitlist";
+
+export type RateUnit = "hourly" | "daily";
 
 export interface Task {
   id: string;
@@ -12,20 +17,23 @@ export interface Task {
   startAt: Timestamp | Date;
   endAt: Timestamp | Date;
   positions: {
-    ta: number;
     mt: number;
+    ta: number;
   };
-  /** Per-position hourly rate (HK$). */
   rates?: {
-    ta: number;
     mt: number;
+    ta: number;
   };
-  /** Legacy single rate — kept so older documents still render. */
+  rateUnit?: RateUnit;
+  /** Legacy single hourly rate — kept so older documents still render. */
   hourlyRate?: number;
-  /** School / venue address. */
   address?: string;
-  /** Optional Google Maps link, set from the admin backend. */
   mapUrl?: string;
+  /** Optional application deadline. */
+  deadline?: Timestamp | Date;
+  /** Optional online meeting details. */
+  meetUrl?: string;
+  meetAt?: Timestamp | Date;
   notes?: string;
   status: TaskStatus;
   createdBy: string;
@@ -42,6 +50,7 @@ export interface Registration {
   position: Position;
   status: RegistrationStatus;
   createdAt: Timestamp | Date;
+  confirmedAt?: Timestamp | Date;
 }
 
 export interface UserProfile {
@@ -61,8 +70,8 @@ export interface AppUser {
 }
 
 export const POSITION_LABEL: Record<Position, string> = {
-  ta: "TA 助教",
   mt: "MT 主導師",
+  ta: "TA 助教",
 };
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
@@ -73,10 +82,19 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
 
 export const REGISTRATION_STATUS_LABEL: Record<RegistrationStatus, string> = {
   confirmed: "已確認",
-  waitlist: "後備",
+  waitlist: "待審核",
 };
 
-/** Hourly rate for a position, falling back to the legacy single rate. */
+export const RATE_UNIT_LABEL: Record<RateUnit, string> = {
+  hourly: "／小時",
+  daily: "／日",
+};
+
+/** Rate for a position, falling back to the legacy single rate. */
 export function rateFor(task: Task, position: Position): number {
   return task.rates?.[position] ?? task.hourlyRate ?? 0;
+}
+
+export function rateUnitFor(task: Task): RateUnit {
+  return task.rateUnit ?? "hourly";
 }

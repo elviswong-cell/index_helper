@@ -20,7 +20,7 @@ import {
   formatCurrency,
   durationHours,
 } from "@/lib/utils";
-import { rateFor, type Task } from "@/lib/types";
+import { rateFor, rateUnitFor, RATE_UNIT_LABEL, type Task } from "@/lib/types";
 
 export default function HomePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -117,12 +117,13 @@ function TaskCard({ task }: { task: Task }) {
           )}
           <span className="flex items-center gap-2 text-xs">
             <DollarSign className="h-3.5 w-3.5 shrink-0" />
-            TA {formatCurrency(rateFor(task, "ta"))} · MT{" "}
-            {formatCurrency(rateFor(task, "mt"))}／小時
+            MT {formatCurrency(rateFor(task, "mt"))} · TA{" "}
+            {formatCurrency(rateFor(task, "ta"))}
+            {RATE_UNIT_LABEL[rateUnitFor(task)]}
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5 shrink-0" />
-            TA {task.positions.ta} 名 · MT {task.positions.mt} 名
+            MT {task.positions.mt} 名 · TA {task.positions.ta} 名
           </span>
         </CardDescription>
       </CardHeader>

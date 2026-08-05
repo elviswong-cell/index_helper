@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
   Calendar,
+  CheckCircle2,
   Clock,
   DollarSign,
-  Loader2,
   Mail,
+  Pencil,
   Phone,
-  Trash2,
   Users,
   UserX,
 } from "lucide-react";
@@ -30,22 +30,24 @@ import {
   getTask,
   listRegistrationsForTask,
   cancelRegistration,
+  confirmRegistration,
   cancelTask,
   reopenTask,
+  toDate,
 } from "@/lib/db";
-import { toDate } from "@/lib/db";
 import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
 import {
   POSITION_LABEL,
   REGISTRATION_STATUS_LABEL,
+  RATE_UNIT_LABEL,
   rateFor,
+  rateUnitFor,
   type Task,
   type Registration,
 } from "@/lib/types";
 
 export default function AdminTaskDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
   const [task, setTask] = useState<Task | null>(null);
@@ -75,6 +77,21 @@ export default function AdminTaskDetailPage() {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  async function handleConfirm(reg: Registration) {
+    if (!task) return;
+    setBusy(true);
+    try {
+      await confirmRegistration(reg, task);
+      toast("success", `已確認 ${reg.userName}，確認郵件已排入寄送佇列`);
+      await refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "確認失敗";
+      toast("error", msg);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleRemove(reg: Registration) {
     if (!confirm(`確定移除 ${reg.userName} 的報名？`)) return;
@@ -117,7 +134,7 @@ export default function AdminTaskDetailPage() {
 
   if (!task) {
     return (
-      <div className="rounded-xl border border-dashed border-border/60 bg-card/30 p-8 text-center">
+      <div className="rounded-[20px] glass p-8 text-center">
         <h2 className="text-xl font-semibold mb-2">找不到此工作</h2>
         <Button asChild variant="outline">
           <Link href="/admin">返回後台</Link>
@@ -129,11 +146,12 @@ export default function AdminTaskDetailPage() {
   const start = toDate(task.startAt);
   const end = toDate(task.endAt);
   const hours = durationHours(start, end);
-  const confirmedTa = regs.filter((r) => r.position === "ta" && r.status === "confirmed").length;
   const confirmedMt = regs.filter((r) => r.position === "mt" && r.status === "confirmed").length;
+  const confirmedTa = regs.filter((r) => r.position === "ta" && r.status === "confirmed").length;
+  const unit = rateUnitFor(task);
 
   const sortedRegs = [...regs].sort((a, b) => {
-    if (a.status !== b.status) return a.status === "confirmed" ? -1 : 1;
+    if (a.status !== b.status) return a.status === "waitlist" ? -1 : 1;
     return 0;
   });
 
@@ -165,13 +183,21 @@ export default function AdminTaskDetailPage() {
                 </Badge>
               </div>
             </div>
-            <Button variant="outline" onClick={toggleStatus} disabled={busy}>
-              {task.status === "open"
-                ? "取消工作"
-                : task.status === "cancelled"
-                  ? "重新開放"
-                  : "無操作"}
-            </Button>
+            <div className="flex gap-2">
+              <Button asChild variant="outline" size="sm" className="gap-2">
+                <Link href={`/admin/tasks/${task.id}/edit`}>
+                  <Pencil className="h-4 w-4" />
+                  編輯
+                </Link>
+              </Button>
+              <Button variant="outline" onClick={toggleStatus} disabled={busy}>
+                {task.status === "open"
+                  ? "取消工作"
+                  : task.status === "cancelled"
+                    ? "重新開放"
+                    : "無操作"}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -193,9 +219,10 @@ export default function AdminTaskDetailPage() {
             <div className="flex items-start gap-3">
               <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-xs text-muted-foreground">時薪</p>
+                <p className="text-xs text-muted-foreground">薪酬</p>
                 <p className="font-medium">
-                  TA {formatCurrency(rateFor(task, "ta"))} · MT {formatCurrency(rateFor(task, "mt"))}／小時
+                  MT {formatCurrency(rateFor(task, "mt"))} · TA {formatCurrency(rateFor(task, "ta"))}
+                  {RATE_UNIT_LABEL[unit]}
                 </p>
               </div>
             </div>
@@ -204,13 +231,13 @@ export default function AdminTaskDetailPage() {
               <div>
                 <p className="text-xs text-muted-foreground">已確認名額</p>
                 <p className="font-medium">
-                  TA {confirmedTa}/{task.positions.ta} · MT {confirmedMt}/{task.positions.mt}
+                  MT {confirmedMt}/{task.positions.mt} · TA {confirmedTa}/{task.positions.ta}
                 </p>
               </div>
             </div>
           </div>
           {task.notes && (
-            <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm">
+            <div className="mt-4 rounded-2xl border border-white/60 bg-white/50 p-3 text-sm">
               <p className="text-xs text-muted-foreground mb-1">備註</p>
               <p className="whitespace-pre-wrap">{task.notes}</p>
             </div>
@@ -223,8 +250,8 @@ export default function AdminTaskDetailPage() {
         <CardHeader>
           <CardTitle>報名名單</CardTitle>
           <CardDescription>
-            共 {regs.length} 人報名（{confirmedTa + confirmedMt} 已確認 /{" "}
-            {regs.length - (confirmedTa + confirmedMt)} 後備）
+            共 {regs.length} 人報名（{confirmedMt + confirmedTa} 已確認 /{" "}
+            {regs.length - (confirmedMt + confirmedTa)} 待審核）
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -237,19 +264,16 @@ export default function AdminTaskDetailPage() {
               {sortedRegs.map((r) => (
                 <div
                   key={r.id}
-                  className={`flex items-center justify-between gap-3 rounded-lg border p-3 ${
+                  className={`flex items-center justify-between gap-3 rounded-2xl border p-3 ${
                     r.status === "waitlist"
-                      ? "border-border/60 bg-muted/20 opacity-70"
-                      : "border-border/60 bg-card"
+                      ? "border-[hsl(var(--warning))]/30 bg-[hsl(var(--warning))]/5"
+                      : "border-white/60 bg-white/50"
                   }`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium truncate">{r.userName}</span>
-                      <Badge
-                        variant={r.status === "confirmed" ? "success" : "muted"}
-                        className={r.status === "waitlist" ? "grayscale" : ""}
-                      >
+                      <Badge variant={r.status === "confirmed" ? "success" : "warning"}>
                         {POSITION_LABEL[r.position]} · {REGISTRATION_STATUS_LABEL[r.status]}
                       </Badge>
                     </div>
@@ -272,15 +296,29 @@ export default function AdminTaskDetailPage() {
                       )}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemove(r)}
-                    disabled={busy}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <UserX className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    {r.status === "waitlist" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleConfirm(r)}
+                        disabled={busy}
+                        className="text-[hsl(var(--success))] hover:text-[hsl(var(--success))] gap-1"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        確認
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemove(r)}
+                      disabled={busy}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <UserX className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -26,13 +26,11 @@ export function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-background">
+    <header className="sticky top-0 z-40 w-full glass border-x-0 border-t-0 rounded-none">
       <div className="container flex h-16 items-center justify-between">
-        <Link href="/" className="flex flex-col leading-tight">
-          <span className="text-base font-semibold tracking-tight">
-            INDEX ACADEMY
-          </span>
-          <span className="text-xs text-muted-foreground">工作列表</span>
+        <Link href="/" className="flex items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Index Academy" className="h-7 md:h-8 w-auto" />
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
@@ -49,10 +47,10 @@ export function Header() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
                   active
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                    ? "bg-black/[0.06] text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04]",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -64,7 +62,7 @@ export function Header() {
 
         <div className="flex items-center gap-2">
           {loading ? (
-            <div className="h-9 w-24 rounded-lg bg-muted animate-pulse" />
+            <div className="h-9 w-24 rounded-full bg-muted animate-pulse" />
           ) : user ? (
             <div className="flex items-center gap-2">
               <div className="hidden sm:flex flex-col items-end leading-tight">
@@ -90,7 +88,7 @@ export function Header() {
       </div>
 
       {/* Mobile nav */}
-      <nav className="md:hidden border-t border-border overflow-x-auto">
+      <nav className="md:hidden border-t border-white/60 overflow-x-auto">
         <div className="container flex items-center gap-1 py-2">
           {NAV.map((item) => {
             if (item.auth && !user) return null;
@@ -102,8 +100,8 @@ export function Header() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs whitespace-nowrap",
-                  active ? "bg-muted text-foreground" : "text-muted-foreground",
+                  "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs whitespace-nowrap",
+                  active ? "bg-black/[0.06] text-foreground" : "text-muted-foreground",
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />

@@ -10,11 +10,11 @@ import {
   where,
   orderBy,
   serverTimestamp,
+  setDoc,
   Timestamp,
   type QueryConstraint,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { setDoc } from "firebase/firestore";
 import type {
   Task,
   Registration,
@@ -23,6 +23,7 @@ import type {
   TaskStatus,
   UserProfile,
 } from "./types";
+import { POSITION_LABEL } from "./types";
 
 // ---------- Admin UIDs (simple gating) ----------
 const ADMIN_UIDS = (process.env.NEXT_PUBLIC_ADMIN_UIDS ?? "")
@@ -99,6 +100,9 @@ export async function listAllTasks(): Promise<Task[]> {
 }
 
 // ---------- Registrations ----------
+// All new registrations start as "waitlist" (pending admin review).
+// Admin manually confirms via confirmRegistration(), which checks capacity
+// and triggers a confirmation email.
 export async function registerForTask(args: {
   taskId: string;
   userId: string;
@@ -113,25 +117,14 @@ export async function registerForTask(args: {
     throw new Error("請先在「設定」填寫電話號碼後才能報名");
   }
 
-  // Count existing confirmed registrations for this task + position
-  const existingQ = query(
-    collection(db, "registrations"),
-    where("taskId", "==", args.taskId),
-    where("position", "==", args.position),
-  );
-  const existing = await getDocs(existingQ);
-  const confirmed = existing.docs.filter(
-    (d) => (d.data() as Registration).status === "confirmed",
-  );
-
   const task = await getTask(args.taskId);
-  if (!task) throw new Error("Task not found");
+  if (!task) throw new Error("找不到此工作");
 
-  const cap = task.positions[args.position];
-  const status: RegistrationStatus =
-    confirmed.length < cap ? "confirmed" : "waitlist";
+  const deadline = toDate(task.deadline);
+  if (deadline && new Date() > deadline) {
+    throw new Error("已過報名截止時間");
+  }
 
-  // Prevent duplicate registration by same user for same task
   const dupQ = query(
     collection(db, "registrations"),
     where("taskId", "==", args.taskId),
@@ -139,8 +132,10 @@ export async function registerForTask(args: {
   );
   const dup = await getDocs(dupQ);
   if (!dup.empty) {
-    throw new Error("你已經報名過這個任務");
+    throw new Error("你已經報名過這個工作");
   }
+
+  const status: RegistrationStatus = "waitlist";
 
   const ref = await addDoc(collection(db, "registrations"), {
     taskId: args.taskId,
@@ -154,6 +149,56 @@ export async function registerForTask(args: {
   });
 
   return { id: ref.id, status };
+}
+
+/**
+ * Admin confirms a pending (waitlist) registration.
+ * Checks the position hasn't already filled up, marks it confirmed,
+ * and queues a confirmation email (see mail/ collection note below).
+ */
+export async function confirmRegistration(
+  registration: Registration,
+  task: Task,
+): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+
+  const confirmedCount = await countConfirmed(task.id, registration.position);
+  const cap = task.positions[registration.position];
+  if (confirmedCount >= cap) {
+    throw new Error("此職位名額已滿，無法確認");
+  }
+
+  await updateDoc(doc(db, "registrations", registration.id), {
+    status: "confirmed",
+    confirmedAt: serverTimestamp(),
+  });
+
+  await queueConfirmationEmail(registration, task);
+}
+
+/**
+ * Writes a document to the `mail` collection in the format expected by the
+ * official "Trigger Email from Firestore" Firebase Extension. Install that
+ * extension (with your own SMTP / SendGrid credentials) for emails to
+ * actually be sent — this call alone does not send mail.
+ */
+async function queueConfirmationEmail(
+  registration: Registration,
+  task: Task,
+): Promise<void> {
+  if (!db) return;
+  try {
+    await addDoc(collection(db, "mail"), {
+      to: [registration.userEmail],
+      message: {
+        subject: `報名已確認：${task.schoolName}`,
+        text: `${registration.userName} 你好，\n\n你報名的「${task.schoolName}」（${POSITION_LABEL[registration.position]}）已獲確認。\n\n如有查詢，請直接回覆此郵件。`,
+      },
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error("Failed to queue confirmation email:", err);
+  }
 }
 
 export async function cancelRegistration(registrationId: string): Promise<void> {

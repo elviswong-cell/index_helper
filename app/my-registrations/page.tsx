@@ -110,7 +110,7 @@ export default function MyRegistrationsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">我的報名</h1>
           <p className="text-muted-foreground mt-1">
-            所有你已報名的工作 — 已確認與後備
+            所有你已報名的工作 — 已確認與待審核
           </p>
         </div>
         <Button variant="outline" onClick={refresh} disabled={busy}>

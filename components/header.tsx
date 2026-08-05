@@ -13,24 +13,26 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const NAV = [
-  { href: "/", label: "工作列表", icon: Briefcase },
-  { href: "/my-registrations", label: "我的報名", icon: CalendarCheck, auth: true },
-  { href: "/settings", label: "設定", icon: Settings, auth: true },
-  { href: "/admin", label: "管理後台", icon: ShieldCheck, admin: true },
-];
+import { useLang } from "@/lib/i18n";
 
 export function Header() {
   const { user, signInWithGoogle, signOut, loading } = useAuth();
   const pathname = usePathname();
+  const { lang, setLang, t } = useLang();
+
+  const NAV = [
+    { href: "/", label: t("nav_jobs"), icon: Briefcase },
+    { href: "/my-registrations", label: t("nav_my_registrations"), icon: CalendarCheck, auth: true },
+    { href: "/settings", label: t("nav_settings"), icon: Settings, auth: true },
+    { href: "/admin", label: t("nav_admin"), icon: ShieldCheck, admin: true },
+  ];
 
   return (
     <header className="sticky top-0 z-40 w-full glass border-x-0 border-t-0 rounded-none">
-      <div className="container flex h-16 items-center justify-between">
+      <div className="container flex h-20 items-center justify-between">
         <Link href="/" className="flex items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Index Academy" className="h-7 md:h-8 w-auto" />
+          <img src="/logo.png" alt="Index Academy" className="h-10 md:h-12 w-auto" />
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
@@ -60,7 +62,28 @@ export function Header() {
           })}
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center rounded-full border border-border bg-white/60 p-0.5 text-xs font-medium">
+            <button
+              onClick={() => setLang("en")}
+              className={cn(
+                "press rounded-full px-2.5 py-1 transition-colors",
+                lang === "en" ? "bg-foreground text-background" : "text-muted-foreground",
+              )}
+            >
+              EN
+            </button>
+            <button
+              onClick={() => setLang("zh")}
+              className={cn(
+                "press rounded-full px-2.5 py-1 transition-colors",
+                lang === "zh" ? "bg-foreground text-background" : "text-muted-foreground",
+              )}
+            >
+              中
+            </button>
+          </div>
+
           {loading ? (
             <div className="h-9 w-24 rounded-full bg-muted animate-pulse" />
           ) : user ? (
@@ -70,18 +93,18 @@ export function Header() {
                   {user.displayName ?? user.email}
                 </span>
                 {user.isAdmin && (
-                  <span className="text-[10px] text-primary">管理員</span>
+                  <span className="text-[10px] text-primary">{t("admin_badge")}</span>
                 )}
               </div>
               <Button variant="ghost" size="sm" onClick={() => signOut()} className="gap-2">
                 <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline">登出</span>
+                <span className="hidden sm:inline">{t("logout")}</span>
               </Button>
             </div>
           ) : (
             <Button size="sm" onClick={() => signInWithGoogle()} className="gap-2">
               <LogIn className="h-4 w-4" />
-              Google 登入
+              {t("google_login")}
             </Button>
           )}
         </div>

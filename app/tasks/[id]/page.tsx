@@ -40,7 +40,6 @@ import {
   durationHours,
 } from "@/lib/utils";
 import {
-  POSITION_LABEL,
   POSITIONS,
   RATE_UNIT_LABEL,
   rateFor,
@@ -49,11 +48,13 @@ import {
   type Task,
   type Registration,
 } from "@/lib/types";
+import { useLang } from "@/lib/i18n";
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, signInWithGoogle } = useAuth();
   const { toast } = useToast();
+  const { t } = useLang();
   const [task, setTask] = useState<Task | null>(null);
   const [counts, setCounts] = useState<Record<Position, number>>({ mt: 0, ta: 0 });
   const [myReg, setMyReg] = useState<Registration | null>(null);
@@ -86,7 +87,7 @@ export default function TaskDetailPage() {
       }
     } catch (err) {
       console.error(err);
-      toast("error", "載入工作失敗");
+      toast("error", t("load_failed"));
     } finally {
       setLoading(false);
     }
@@ -100,7 +101,7 @@ export default function TaskDetailPage() {
   async function handleRegister() {
     if (!user || !task) return;
     if (!phone) {
-      toast("error", "請先在「設定」填寫電話號碼");
+      toast("error", t("phone_required_toast"));
       return;
     }
     setSubmitting(true);
@@ -109,14 +110,14 @@ export default function TaskDetailPage() {
         taskId: task.id,
         userId: user.uid,
         userEmail: user.email ?? "",
-        userName: user.displayName ?? user.email ?? "匿名",
+        userName: user.displayName ?? user.email ?? t("anonymous"),
         userPhone: phone,
         position,
       });
-      toast("success", "已提交報名，等待管理員確認");
+      toast("success", t("app_submitted"));
       await refresh();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "報名失敗";
+      const msg = err instanceof Error ? err.message : t("apply_failed");
       toast("error", msg);
     } finally {
       setSubmitting(false);
@@ -127,25 +128,25 @@ export default function TaskDetailPage() {
     if (!myReg) return;
     try {
       await cancelRegistration(myReg.id);
-      toast("success", "已取消報名");
+      toast("success", t("app_cancelled"));
       await refresh();
     } catch (err) {
       console.error(err);
-      toast("error", "取消失敗");
+      toast("error", t("cancel_failed"));
     }
   }
 
   if (loading) {
-    return <div className="text-muted-foreground">載入中...</div>;
+    return <div className="text-muted-foreground">{t("loading")}</div>;
   }
 
   if (!task) {
     return (
       <div className="rounded-[20px] glass p-8 text-center">
         <Briefcase className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
-        <h2 className="text-lg font-medium mb-2">找不到此工作</h2>
+        <h2 className="text-lg font-medium mb-2">{t("job_not_found")}</h2>
         <Button asChild variant="outline">
-          <Link href="/">回到工作列表</Link>
+          <Link href="/">{t("back_to_jobs")}</Link>
         </Button>
       </div>
     );
@@ -165,7 +166,7 @@ export default function TaskDetailPage() {
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href="/">
           <ArrowLeft className="h-4 w-4" />
-          返回工作列表
+          {t("back_to_jobs")}
         </Link>
       </Button>
 
@@ -184,33 +185,33 @@ export default function TaskDetailPage() {
                 }
               >
                 {isOpen
-                  ? "開放報名"
+                  ? t("status_open")
                   : task.status === "cancelled"
-                    ? "已取消"
-                    : "已截止"}
+                    ? t("status_cancelled")
+                    : t("status_closed")}
               </Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <InfoRow icon={<Calendar className="h-4 w-4" />} label="日期">
+            <InfoRow icon={<Calendar className="h-4 w-4" />} label={t("label_date")}>
               {formatDate(start)}
             </InfoRow>
-            <InfoRow icon={<Clock className="h-4 w-4" />} label="時間">
-              {formatTimeRange(start, end)}（{hours} 小時）
+            <InfoRow icon={<Clock className="h-4 w-4" />} label={t("label_time")}>
+              {formatTimeRange(start, end)} ({hours} {t("hours_suffix")})
             </InfoRow>
-            <InfoRow icon={<DollarSign className="h-4 w-4" />} label="薪酬">
+            <InfoRow icon={<DollarSign className="h-4 w-4" />} label={t("label_pay")}>
               MT {formatCurrency(rateFor(task, "mt"))} · TA{" "}
               {formatCurrency(rateFor(task, "ta"))}
               {RATE_UNIT_LABEL[unit]}
             </InfoRow>
-            <InfoRow icon={<Users className="h-4 w-4" />} label="名額">
+            <InfoRow icon={<Users className="h-4 w-4" />} label={t("label_slots")}>
               MT {counts.mt}/{task.positions.mt} · TA {counts.ta}/{task.positions.ta}
             </InfoRow>
             {task.address && (
               <div className="md:col-span-2">
-                <InfoRow icon={<MapPin className="h-4 w-4" />} label="地址">
+                <InfoRow icon={<MapPin className="h-4 w-4" />} label={t("label_address")}>
                   <span className="block">{task.address}</span>
                   {task.mapUrl && (
                     <a
@@ -219,7 +220,7 @@ export default function TaskDetailPage() {
                       rel="noopener noreferrer"
                       className="mt-1 inline-flex items-center gap-1 text-primary hover:underline text-sm font-normal"
                     >
-                      在 Google 地圖開啟
+                      {t("open_in_maps")}
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   )}
@@ -227,22 +228,22 @@ export default function TaskDetailPage() {
               </div>
             )}
             {deadline && (
-              <InfoRow icon={<Hourglass className="h-4 w-4" />} label="報名截止">
+              <InfoRow icon={<Hourglass className="h-4 w-4" />} label={t("label_deadline")}>
                 <span className={pastDeadline ? "text-destructive" : undefined}>
                   {formatDate(deadline)} {deadline.toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit" })}
-                  {pastDeadline && "（已截止）"}
+                  {pastDeadline && t("deadline_closed_paren")}
                 </span>
               </InfoRow>
             )}
             {task.meetUrl && (
-              <InfoRow icon={<Video className="h-4 w-4" />} label="線上會議">
+              <InfoRow icon={<Video className="h-4 w-4" />} label={t("label_meeting")}>
                 <a
                   href={task.meetUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-primary hover:underline"
                 >
-                  加入 Google Meet
+                  {t("join_meet")}
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
                 {meetAt && (
@@ -256,7 +257,7 @@ export default function TaskDetailPage() {
 
           {task.notes && (
             <div className="rounded-2xl border border-white/60 bg-white/50 p-4">
-              <p className="text-xs text-muted-foreground mb-1">備註</p>
+              <p className="text-xs text-muted-foreground mb-1">{t("label_notes")}</p>
               <p className="text-sm whitespace-pre-wrap">{task.notes}</p>
             </div>
           )}
@@ -270,49 +271,49 @@ export default function TaskDetailPage() {
                       className={`h-5 w-5 ${myReg.status === "confirmed" ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}
                     />
                     <span className="font-medium">
-                      你已報名 {POSITION_LABEL[myReg.position]} —{" "}
-                      {myReg.status === "confirmed" ? "已確認" : "待管理員審核"}
+                      {t("already_applied")} {t(myReg.position === "mt" ? "pos_mt" : "pos_ta")} —{" "}
+                      {myReg.status === "confirmed" ? t("status_confirmed") : t("status_pending")}
                     </span>
                   </div>
                   <Button variant="outline" onClick={handleCancel} className="w-full sm:w-auto">
-                    取消報名
+                    {t("cancel_application")}
                   </Button>
                 </div>
               ) : !user ? (
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 text-center space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    請先用 Google 登入才能報名
+                    {t("please_sign_in")}
                   </p>
-                  <Button onClick={() => signInWithGoogle()}>Google 登入</Button>
+                  <Button onClick={() => signInWithGoogle()}>{t("google_login")}</Button>
                 </div>
               ) : pastDeadline ? (
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 text-center text-sm text-muted-foreground">
-                  已過報名截止時間
+                  {t("past_deadline")}
                 </div>
               ) : !phone ? (
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-3">
                   <div className="flex items-start gap-2">
                     <Phone className="h-5 w-5 shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
                     <div>
-                      <p className="font-medium text-sm">尚未設定電話號碼</p>
+                      <p className="font-medium text-sm">{t("no_phone_title")}</p>
                       <p className="text-sm text-muted-foreground">
-                        報名前必須先填寫電話號碼，方便我們聯絡你。
+                        {t("no_phone_desc")}
                       </p>
                     </div>
                   </div>
                   <Button asChild>
-                    <Link href="/settings">前往設定電話號碼</Link>
+                    <Link href="/settings">{t("go_to_settings")}</Link>
                   </Button>
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>選擇職位</Label>
+                    <Label>{t("select_position")}</Label>
                     <div className="grid grid-cols-2 gap-3">
                       {POSITIONS.map((pos) => (
                         <PositionOption
                           key={pos}
-                          label={POSITION_LABEL[pos]}
+                          label={t(pos === "mt" ? "pos_mt" : "pos_ta")}
                           rate={rateFor(task, pos)}
                           unit={unit}
                           current={counts[pos]}
@@ -326,9 +327,9 @@ export default function TaskDetailPage() {
 
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Phone className="h-4 w-4" />
-                    聯絡電話：{phone}
+                    {t("contact_phone")}: {phone}
                     <Link href="/settings" className="text-primary hover:underline">
-                      修改
+                      {t("edit")}
                     </Link>
                   </div>
 
@@ -340,14 +341,14 @@ export default function TaskDetailPage() {
                     {submitting ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        報名中...
+                        {t("submitting")}
                       </>
                     ) : (
-                      "提交報名"
+                      t("submit_application")
                     )}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    提交後會進入待審核名單，管理員手動確認後你會收到確認電郵。
+                    {t("submit_note")}
                   </p>
                 </div>
               )}
@@ -396,6 +397,7 @@ function PositionOption({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useLang();
   const full = current >= total;
   return (
     <button
@@ -411,7 +413,7 @@ function PositionOption({
         <span className="font-medium text-sm">{label}</span>
         {full && (
           <Badge variant="muted" className="text-[10px]">
-            已額滿
+            {t("full")}
           </Badge>
         )}
       </div>
@@ -420,7 +422,7 @@ function PositionOption({
         {RATE_UNIT_LABEL[unit]}
       </p>
       <p className="text-xs text-muted-foreground">
-        已確認 {current} / {total} 名
+        {t("confirmed_of")} {current} / {total}
       </p>
     </button>
   );

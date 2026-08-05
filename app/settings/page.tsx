@@ -16,10 +16,12 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import { getUserProfile, saveUserProfile } from "@/lib/db";
+import { useLang } from "@/lib/i18n";
 
 export default function SettingsPage() {
   const { user, loading } = useAuth();
   const { toast } = useToast();
+  const { t } = useLang();
   const [phone, setPhone] = useState("");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,7 +56,7 @@ export default function SettingsPage() {
     if (!user) return;
     const trimmed = phone.trim();
     if (!/^[0-9+\-\s()]{6,20}$/.test(trimmed)) {
-      toast("error", "請輸入有效的電話號碼");
+      toast("error", t("invalid_phone"));
       return;
     }
     setBusy(true);
@@ -65,28 +67,28 @@ export default function SettingsPage() {
         email: user.email ?? "",
       });
       setSaved(true);
-      toast("success", "電話號碼已儲存");
+      toast("success", t("phone_save_success"));
     } catch (err) {
       console.error(err);
-      toast("error", "儲存失敗");
+      toast("error", t("save_failed"));
     } finally {
       setBusy(false);
     }
   }
 
   if (loading || fetching) {
-    return <div className="text-muted-foreground">載入中...</div>;
+    return <div className="text-muted-foreground">{t("loading")}</div>;
   }
 
   if (!user) {
     return (
       <div className="rounded-xl border border-dashed border-border p-8 text-center">
-        <h2 className="text-lg font-medium mb-2">需要登入</h2>
+        <h2 className="text-lg font-medium mb-2">{t("need_sign_in")}</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          請先用 Google 登入才能設定個人資料
+          {t("need_sign_in_desc")}
         </p>
         <Button asChild>
-          <Link href="/">回到工作列表</Link>
+          <Link href="/">{t("browse_jobs")}</Link>
         </Button>
       </div>
     );
@@ -95,9 +97,9 @@ export default function SettingsPage() {
   return (
     <div className="max-w-lg space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">設定</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("settings_title")}</h1>
         <p className="text-sm text-muted-foreground">
-          報名工作前必須先填寫電話號碼，方便我們聯絡你。
+          {t("settings_subtitle")}
         </p>
       </div>
 
@@ -105,21 +107,21 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Phone className="h-5 w-5" />
-            聯絡電話
+            {t("contact_phone_title")}
           </CardTitle>
           <CardDescription>
-            此電話號碼會隨你的報名一併提交給管理員。
+            {t("contact_phone_desc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSave} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="phone">電話號碼 *</Label>
+              <Label htmlFor="phone">{t("contact_phone_title")} *</Label>
               <Input
                 id="phone"
                 type="tel"
                 inputMode="tel"
-                placeholder="例如：9123 4567"
+                placeholder={t("phone_placeholder")}
                 value={phone}
                 onChange={(e) => {
                   setPhone(e.target.value);
@@ -132,7 +134,7 @@ export default function SettingsPage() {
             {saved && (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-sm">
                 <CheckCircle2 className="h-4 w-4 text-[hsl(var(--success))]" />
-                電話號碼已設定，你可以報名工作了
+                {t("phone_saved")}
               </div>
             )}
 
@@ -141,14 +143,14 @@ export default function SettingsPage() {
                 {busy ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    儲存中...
+                    {t("saving")}
                   </>
                 ) : (
-                  "儲存"
+                  t("save")
                 )}
               </Button>
               <Button asChild type="button" variant="outline">
-                <Link href="/">回到工作列表</Link>
+                <Link href="/">{t("browse_jobs")}</Link>
               </Button>
             </div>
           </form>
@@ -157,14 +159,14 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">帳號資料</CardTitle>
+          <CardTitle className="text-base">{t("account_info")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
           <p className="text-muted-foreground">
-            姓名：<span className="text-foreground">{user.displayName ?? "—"}</span>
+            {t("name_label")}: <span className="text-foreground">{user.displayName ?? "—"}</span>
           </p>
           <p className="text-muted-foreground">
-            電郵：<span className="text-foreground">{user.email ?? "—"}</span>
+            {t("email_label")}: <span className="text-foreground">{user.email ?? "—"}</span>
           </p>
         </CardContent>
       </Card>

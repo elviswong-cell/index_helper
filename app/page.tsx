@@ -21,8 +21,10 @@ import {
   durationHours,
 } from "@/lib/utils";
 import { rateFor, rateUnitFor, RATE_UNIT_LABEL, type Task } from "@/lib/types";
+import { useLang } from "@/lib/i18n";
 
 export default function HomePage() {
+  const { t } = useLang();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,10 +49,10 @@ export default function HomePage() {
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
-          INDEX ACADEMY 工作列表
+          {t("home_title")}
         </h1>
         <p className="text-muted-foreground text-sm md:text-base">
-          瀏覽所有開放中的工作。報名前請先用 Google 登入，並在「設定」填寫電話號碼。
+          {t("home_subtitle")}
         </p>
       </section>
 
@@ -63,14 +65,14 @@ export default function HomePage() {
       ) : tasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16 px-4 rounded-xl border border-dashed border-border">
           <Briefcase className="h-10 w-10 text-muted-foreground/50 mb-3" />
-          <h2 className="text-lg font-medium mb-1">目前沒有開放中的工作</h2>
-          <p className="text-sm text-muted-foreground">請稍後再回來查看。</p>
+          <h2 className="text-lg font-medium mb-1">{t("no_open_jobs_title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("no_open_jobs_desc")}</p>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              共 {tasks.length} 個開放工作
+              {tasks.length} {t("jobs_count")}
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -85,6 +87,7 @@ export default function HomePage() {
 }
 
 function TaskCard({ task }: { task: Task }) {
+  const { t } = useLang();
   const start = toDate(task.startAt);
   const end = toDate(task.endAt);
   const hours = durationHours(start, end);
@@ -97,7 +100,7 @@ function TaskCard({ task }: { task: Task }) {
             {task.schoolName}
           </CardTitle>
           <Badge variant="success" className="shrink-0">
-            開放
+            {t("open")}
           </Badge>
         </div>
         <CardDescription className="space-y-1.5 pt-2">
@@ -129,7 +132,7 @@ function TaskCard({ task }: { task: Task }) {
       </CardHeader>
       <CardFooter className="mt-auto pt-2">
         <Button asChild className="w-full">
-          <Link href={`/tasks/${task.id}`}>查看並報名</Link>
+          <Link href={`/tasks/${task.id}`}>{t("view_and_apply")}</Link>
         </Button>
       </CardFooter>
     </Card>

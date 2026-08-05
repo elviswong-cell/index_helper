@@ -23,7 +23,6 @@ import type {
   TaskStatus,
   UserProfile,
 } from "./types";
-import { POSITION_LABEL } from "./types";
 
 // ---------- Admin UIDs (simple gating) ----------
 const ADMIN_UIDS = (process.env.NEXT_PUBLIC_ADMIN_UIDS ?? "")
@@ -153,8 +152,9 @@ export async function registerForTask(args: {
 
 /**
  * Admin confirms a pending (waitlist) registration.
- * Checks the position hasn't already filled up, marks it confirmed,
- * and queues a confirmation email (see mail/ collection note below).
+ * Checks the position hasn't already filled up and marks it confirmed.
+ * Sending the confirmation email is a separate step — call
+ * sendConfirmationEmail() (in lib/mail.ts) after this succeeds.
  */
 export async function confirmRegistration(
   registration: Registration,
@@ -172,33 +172,6 @@ export async function confirmRegistration(
     status: "confirmed",
     confirmedAt: serverTimestamp(),
   });
-
-  await queueConfirmationEmail(registration, task);
-}
-
-/**
- * Writes a document to the `mail` collection in the format expected by the
- * official "Trigger Email from Firestore" Firebase Extension. Install that
- * extension (with your own SMTP / SendGrid credentials) for emails to
- * actually be sent — this call alone does not send mail.
- */
-async function queueConfirmationEmail(
-  registration: Registration,
-  task: Task,
-): Promise<void> {
-  if (!db) return;
-  try {
-    await addDoc(collection(db, "mail"), {
-      to: [registration.userEmail],
-      message: {
-        subject: `報名已確認：${task.schoolName}`,
-        text: `${registration.userName} 你好，\n\n你報名的「${task.schoolName}」（${POSITION_LABEL[registration.position]}）已獲確認。\n\n如有查詢，請直接回覆此郵件。`,
-      },
-      createdAt: serverTimestamp(),
-    });
-  } catch (err) {
-    console.error("Failed to queue confirmation email:", err);
-  }
 }
 
 export async function cancelRegistration(registrationId: string): Promise<void> {

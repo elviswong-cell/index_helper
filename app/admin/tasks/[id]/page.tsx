@@ -35,6 +35,7 @@ import {
   reopenTask,
   toDate,
 } from "@/lib/db";
+import { sendConfirmationEmail } from "@/lib/mail";
 import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
 import {
   POSITION_LABEL,
@@ -83,8 +84,14 @@ export default function AdminTaskDetailPage() {
     setBusy(true);
     try {
       await confirmRegistration(reg, task);
-      toast("success", `已確認 ${reg.userName}，確認郵件已排入寄送佇列`);
+      toast("success", `已確認 ${reg.userName}`);
       await refresh();
+      try {
+        await sendConfirmationEmail(reg, task.schoolName);
+      } catch (mailErr) {
+        console.error(mailErr);
+        toast("error", "已確認，但確認郵件寄送失敗，請自行聯絡對方");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "確認失敗";
       toast("error", msg);

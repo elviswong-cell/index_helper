@@ -1,5 +1,10 @@
 "use client";
-
+import {
+  listRegistrationsForUser,
+  cancelRegistration,
+  getTask,
+  toDate,
+} from "@/lib/db";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -153,8 +158,8 @@ export default function MyRegistrationsPage() {
 
 function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
   const task = reg.task;
-  const start = task ? new Date(task.startAt as unknown as string) : null;
-  const end = task ? new Date(task.endAt as unknown as string) : null;
+  const start = task ? toDate(task.startAt) : null;
+  const end = task ? toDate(task.endAt) : null;
   const isWaitlist = reg.status === "waitlist";
 
   return (

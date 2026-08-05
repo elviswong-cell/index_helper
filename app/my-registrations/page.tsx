@@ -1,10 +1,5 @@
 "use client";
-import {
-  listRegistrationsForUser,
-  cancelRegistration,
-  getTask,
-  toDate,
-} from "@/lib/db";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -32,6 +27,7 @@ import {
   listRegistrationsForUser,
   cancelRegistration,
   getTask,
+  toDate,
 } from "@/lib/db";
 import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
 import {

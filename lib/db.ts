@@ -14,12 +14,14 @@ import {
   type QueryConstraint,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { setDoc } from "firebase/firestore";
 import type {
   Task,
   Registration,
   Position,
   RegistrationStatus,
   TaskStatus,
+  UserProfile,
 } from "./types";
 
 // ---------- Admin UIDs (simple gating) ----------
@@ -102,9 +104,14 @@ export async function registerForTask(args: {
   userId: string;
   userEmail: string;
   userName: string;
+  userPhone: string;
   position: Position;
 }): Promise<{ id: string; status: RegistrationStatus }> {
   if (!db) throw new Error("Firestore not initialized");
+
+  if (!args.userPhone) {
+    throw new Error("請先在「設定」填寫電話號碼後才能報名");
+  }
 
   // Count existing confirmed registrations for this task + position
   const existingQ = query(
@@ -140,6 +147,7 @@ export async function registerForTask(args: {
     userId: args.userId,
     userEmail: args.userEmail,
     userName: args.userName,
+    userPhone: args.userPhone,
     position: args.position,
     status,
     createdAt: serverTimestamp(),
@@ -198,4 +206,26 @@ export function toDate(value: Timestamp | Date | null | undefined): Date | null 
   if (!value) return null;
   if (value instanceof Date) return value;
   return value.toDate();
+}
+
+// ---------- User profile (phone number) ----------
+export async function getUserProfile(
+  uid: string,
+): Promise<UserProfile | null> {
+  if (!db) throw new Error("Firestore not initialized");
+  const snap = await getDoc(doc(db, "users", uid));
+  if (!snap.exists()) return null;
+  return { uid: snap.id, ...(snap.data() as Omit<UserProfile, "uid">) };
+}
+
+export async function saveUserProfile(
+  uid: string,
+  data: { phone: string; displayName?: string; email?: string },
+): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await setDoc(
+    doc(db, "users", uid),
+    { ...data, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }

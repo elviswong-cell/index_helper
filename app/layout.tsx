@@ -5,8 +5,8 @@ import { Header } from "@/components/header";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "Helper 招聘平台",
-  description: "管理員建立任務、用戶報名、已確認或後備 — 全方位 Helper 招聘管理系統",
+  title: "INDEX ACADEMY 工作列表",
+  description: "INDEX ACADEMY 工作列表 — 瀏覽開放工作、即時報名，自動區分已確認與後備名單",
 };
 
 export default function RootLayout({

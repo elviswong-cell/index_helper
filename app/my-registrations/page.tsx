@@ -33,6 +33,7 @@ import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/li
 import {
   POSITION_LABEL,
   REGISTRATION_STATUS_LABEL,
+  rateFor,
   type Registration,
   type Task,
 } from "@/lib/types";
@@ -82,10 +83,10 @@ export default function MyRegistrationsPage() {
         <CalendarCheck className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
         <h2 className="text-xl font-semibold mb-2">需要登入</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          登入後即可查看你已報名的任務
+          登入後即可查看你已報名的工作
         </p>
         <Button asChild>
-          <Link href="/login">前往登入</Link>
+          <Link href="/">回到工作列表</Link>
         </Button>
       </div>
     );
@@ -109,7 +110,7 @@ export default function MyRegistrationsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">我的報名</h1>
           <p className="text-muted-foreground mt-1">
-            所有你已報名的任務 — 已確認與後備
+            所有你已報名的工作 — 已確認與後備
           </p>
         </div>
         <Button variant="outline" onClick={refresh} disabled={busy}>
@@ -120,12 +121,12 @@ export default function MyRegistrationsPage() {
       {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16 px-4 rounded-xl border border-dashed border-border/60 bg-card/30">
           <CalendarCheck className="h-12 w-12 text-muted-foreground/40 mb-4" />
-          <h3 className="text-lg font-semibold mb-1">尚未報名任何任務</h3>
+          <h3 className="text-lg font-semibold mb-1">尚未報名任何工作</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            到「瀏覽任務」找一個你感興趣的任務
+            到工作列表找一個你感興趣的工作
           </p>
           <Button asChild>
-            <Link href="/tasks">瀏覽任務</Link>
+            <Link href="/">瀏覽工作</Link>
           </Button>
         </div>
       ) : (
@@ -164,7 +165,7 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="space-y-1">
             <CardTitle className="text-lg">
-              {task?.schoolName ?? "（任務已刪除）"}
+              {task?.schoolName ?? "（工作已刪除）"}
             </CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2 pt-1">
               <Badge
@@ -200,7 +201,7 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <DollarSign className="h-4 w-4" />
-            {formatCurrency(task.hourlyRate)}／小時 · TA {task.positions.ta} · MT {task.positions.mt}
+            {formatCurrency(rateFor(task, reg.position))}／小時（{POSITION_LABEL[reg.position]}）
           </div>
         </CardContent>
       )}

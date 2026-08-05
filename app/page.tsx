@@ -1,172 +1,136 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  ArrowRight,
-  Briefcase,
-  Calendar,
-  CheckCircle2,
-  ClipboardList,
-  LogIn,
-  ShieldCheck,
-  Sparkles,
-  Users,
-} from "lucide-react";
+import { Briefcase, Calendar, Clock, DollarSign, MapPin, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAuth } from "@/components/auth-provider";
+import { Badge } from "@/components/ui/badge";
+import { listOpenTasks, toDate } from "@/lib/db";
+import {
+  formatDate,
+  formatTimeRange,
+  formatCurrency,
+  durationHours,
+} from "@/lib/utils";
+import { rateFor, type Task } from "@/lib/types";
 
 export default function HomePage() {
-  const { user, signInWithGoogle, configured } = useAuth();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listOpenTasks();
+        if (!cancelled) setTasks(data);
+      } catch (err) {
+        console.error("Failed to load tasks:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
-    <div className="space-y-12">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-card/80 via-card/40 to-card/80 backdrop-blur-xl p-8 md:p-12">
-        <div className="absolute inset-0 bg-grid-pattern bg-[length:32px_32px] opacity-30" />
-        <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-primary/20 blur-3xl" />
-        <div className="absolute -bottom-24 -left-24 h-64 w-64 rounded-full bg-blue-500/20 blur-3xl" />
+    <div className="space-y-8">
+      <section className="space-y-2">
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+          INDEX ACADEMY 工作列表
+        </h1>
+        <p className="text-muted-foreground text-sm md:text-base">
+          瀏覽所有開放中的工作。報名前請先用 Google 登入，並在「設定」填寫電話號碼。
+        </p>
+      </section>
 
-        <div className="relative space-y-6 max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-            <Sparkles className="h-3 w-3" />
-            智能 Helper 招聘管理系統
-          </div>
-          <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-            <span className="text-gradient">高效管理</span>
-            <br />
-            <span className="text-foreground">Helper 任務與報名</span>
-          </h1>
-          <p className="text-muted-foreground text-base md:text-lg leading-relaxed">
-            管理員建立學校活動任務，設定 TA／MT 名額與時薪。
-            用戶透過 Google 登入、瀏覽任務、即時報名，
-            自動區分<span className="text-foreground">已確認</span>
-            與<span className="text-muted-foreground">後備</span>名單。
-          </p>
-
-          <div className="flex flex-wrap gap-3 pt-2">
-            {user ? (
-              <>
-                <Button asChild size="lg">
-                  <Link href="/tasks" className="gap-2">
-                    <Briefcase className="h-4 w-4" />
-                    瀏覽任務
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-                {user.isAdmin && (
-                  <Button asChild size="lg" variant="outline">
-                    <Link href="/admin" className="gap-2">
-                      <ShieldCheck className="h-4 w-4" />
-                      管理後台
-                    </Link>
-                  </Button>
-                )}
-              </>
-            ) : (
-              <Button
-                size="lg"
-                onClick={() => signInWithGoogle()}
-                className="gap-2"
-                disabled={!configured}
-              >
-                <LogIn className="h-4 w-4" />
-                {configured ? "使用 Google 登入" : "Firebase 未設定"}
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-
-          {!configured && (
-            <div className="text-xs text-warning bg-warning/10 border border-warning/30 rounded-lg p-3 mt-4">
-              ⚠ Firebase 尚未設定 — 請複製 <code className="px-1 bg-background/50 rounded">.env.example</code> 為 <code className="px-1 bg-background/50 rounded">.env.local</code> 並填入 Firebase config 後重新啟動 dev server。
-            </div>
-          )}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-56 rounded-xl bg-muted animate-pulse" />
+          ))}
         </div>
-      </section>
-
-      {/* Features */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <FeatureCard
-          icon={<Briefcase className="h-5 w-5" />}
-          title="任務管理"
-          description="管理員可建立、編輯、取消任務；設定 TA／MT 名額、時薪與備註。"
-        />
-        <FeatureCard
-          icon={<CheckCircle2 className="h-5 w-5" />}
-          title="即時報名"
-          description="用戶一鍵報名，系統自動判定「已確認」或「後備」狀態，名額額滿後自動排候補。"
-        />
-        <FeatureCard
-          icon={<Users className="h-5 w-5" />}
-          title="後備名單"
-          description="已額滿的職位，後續報名者自動進入灰色後備名單，依報名順序自動遞補。"
-        />
-        <FeatureCard
-          icon={<Calendar className="h-5 w-5" />}
-          title="詳細時間"
-          description="完整標示日期、星期、開始與結束時間，方便用戶選擇適合的時段。"
-        />
-        <FeatureCard
-          icon={<ShieldCheck className="h-5 w-5" />}
-          title="管理員後台"
-          description="獨立的管理後台，管理員可查看每個任務的報名名單（已確認 + 後備）。"
-        />
-        <FeatureCard
-          icon={<ClipboardList className="h-5 w-5" />}
-          title="我的報名"
-          description="用戶可隨時查看所有已報名的任務，包含已確認與後備狀態，可自行取消。"
-        />
-      </section>
-
-      {/* CTA */}
-      {!user && configured && (
-        <Card className="overflow-hidden">
-          <div className="grid md:grid-cols-2">
-            <div className="p-8 space-y-4">
-              <h2 className="text-2xl font-bold tracking-tight">準備好了嗎？</h2>
-              <p className="text-muted-foreground">
-                使用你的 Google 帳號登入，即可瀏覽所有開放的 Helper 任務並報名。
-              </p>
-              <Button onClick={() => signInWithGoogle()} className="gap-2">
-                <LogIn className="h-4 w-4" />
-                使用 Google 登入
-              </Button>
-            </div>
-            <div className="hidden md:flex items-center justify-center bg-gradient-to-br from-primary/10 to-blue-500/10 border-l border-border/40">
-              <Sparkles className="h-24 w-24 text-primary/30" />
-            </div>
+      ) : tasks.length === 0 ? (
+        <div className="flex flex-col items-center justify-center text-center py-16 px-4 rounded-xl border border-dashed border-border">
+          <Briefcase className="h-10 w-10 text-muted-foreground/50 mb-3" />
+          <h2 className="text-lg font-medium mb-1">目前沒有開放中的工作</h2>
+          <p className="text-sm text-muted-foreground">請稍後再回來查看。</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              共 {tasks.length} 個開放工作
+            </span>
           </div>
-        </Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {tasks.map((task) => (
+              <TaskCard key={task.id} task={task} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
+function TaskCard({ task }: { task: Task }) {
+  const start = toDate(task.startAt);
+  const end = toDate(task.endAt);
+  const hours = durationHours(start, end);
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          {icon}
+    <Card className="flex flex-col">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base leading-snug line-clamp-2">
+            {task.schoolName}
+          </CardTitle>
+          <Badge variant="success" className="shrink-0">
+            開放
+          </Badge>
         </div>
-        <CardTitle className="mt-3">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription className="space-y-1.5 pt-2">
+          <span className="flex items-center gap-2 text-xs">
+            <Calendar className="h-3.5 w-3.5 shrink-0" />
+            {formatDate(start)}
+          </span>
+          <span className="flex items-center gap-2 text-xs">
+            <Clock className="h-3.5 w-3.5 shrink-0" />
+            {formatTimeRange(start, end)}（{hours} 小時）
+          </span>
+          {task.address && (
+            <span className="flex items-start gap-2 text-xs">
+              <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span className="line-clamp-2">{task.address}</span>
+            </span>
+          )}
+          <span className="flex items-center gap-2 text-xs">
+            <DollarSign className="h-3.5 w-3.5 shrink-0" />
+            TA {formatCurrency(rateFor(task, "ta"))} · MT{" "}
+            {formatCurrency(rateFor(task, "mt"))}／小時
+          </span>
+          <span className="flex items-center gap-2 text-xs">
+            <Users className="h-3.5 w-3.5 shrink-0" />
+            TA {task.positions.ta} 名 · MT {task.positions.mt} 名
+          </span>
+        </CardDescription>
       </CardHeader>
+      <CardFooter className="mt-auto pt-2">
+        <Button asChild className="w-full">
+          <Link href={`/tasks/${task.id}`}>查看並報名</Link>
+        </Button>
+      </CardFooter>
     </Card>
   );
 }

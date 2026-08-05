@@ -52,7 +52,7 @@ export function Toaster({ children }: { children: ReactNode }) {
             <div
               key={t.id}
               className={cn(
-                "pointer-events-auto flex items-start gap-3 min-w-[280px] max-w-sm rounded-lg border bg-card/95 backdrop-blur-xl p-4 shadow-2xl shadow-black/40 animate-fade-in",
+                "pointer-events-auto flex items-start gap-3 min-w-[280px] max-w-sm rounded-lg border bg-card p-4 shadow-lg animate-fade-in",
                 t.kind === "success" && "border-success/40",
                 t.kind === "error" && "border-destructive/40",
                 t.kind === "info" && "border-primary/40",

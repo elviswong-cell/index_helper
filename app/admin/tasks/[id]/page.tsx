@@ -10,6 +10,7 @@ import {
   DollarSign,
   Loader2,
   Mail,
+  Phone,
   Trash2,
   Users,
   UserX,
@@ -37,6 +38,7 @@ import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/li
 import {
   POSITION_LABEL,
   REGISTRATION_STATUS_LABEL,
+  rateFor,
   type Task,
   type Registration,
 } from "@/lib/types";
@@ -95,10 +97,10 @@ export default function AdminTaskDetailPage() {
     try {
       if (task.status === "open") {
         await cancelTask(task.id);
-        toast("success", "任務已取消");
+        toast("success", "工作已取消");
       } else if (task.status === "cancelled") {
         await reopenTask(task.id);
-        toast("success", "任務已重新開放");
+        toast("success", "工作已重新開放");
       }
       await refresh();
     } catch (err) {
@@ -116,7 +118,7 @@ export default function AdminTaskDetailPage() {
   if (!task) {
     return (
       <div className="rounded-xl border border-dashed border-border/60 bg-card/30 p-8 text-center">
-        <h2 className="text-xl font-semibold mb-2">找不到此任務</h2>
+        <h2 className="text-xl font-semibold mb-2">找不到此工作</h2>
         <Button asChild variant="outline">
           <Link href="/admin">返回後台</Link>
         </Button>
@@ -165,7 +167,7 @@ export default function AdminTaskDetailPage() {
             </div>
             <Button variant="outline" onClick={toggleStatus} disabled={busy}>
               {task.status === "open"
-                ? "取消任務"
+                ? "取消工作"
                 : task.status === "cancelled"
                   ? "重新開放"
                   : "無操作"}
@@ -192,7 +194,9 @@ export default function AdminTaskDetailPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-xs text-muted-foreground">時薪</p>
-                <p className="font-medium">{formatCurrency(task.hourlyRate)}／小時</p>
+                <p className="font-medium">
+                  TA {formatCurrency(rateFor(task, "ta"))} · MT {formatCurrency(rateFor(task, "mt"))}／小時
+                </p>
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -249,13 +253,24 @@ export default function AdminTaskDetailPage() {
                         {POSITION_LABEL[r.position]} · {REGISTRATION_STATUS_LABEL[r.status]}
                       </Badge>
                     </div>
-                    <a
-                      href={`mailto:${r.userEmail}`}
-                      className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mt-1"
-                    >
-                      <Mail className="h-3 w-3" />
-                      {r.userEmail}
-                    </a>
+                    <div className="flex flex-wrap items-center gap-3 mt-1">
+                      <a
+                        href={`mailto:${r.userEmail}`}
+                        className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                      >
+                        <Mail className="h-3 w-3" />
+                        {r.userEmail}
+                      </a>
+                      {r.userPhone && (
+                        <a
+                          href={`tel:${r.userPhone}`}
+                          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                        >
+                          <Phone className="h-3 w-3" />
+                          {r.userPhone}
+                        </a>
+                      )}
+                    </div>
                   </div>
                   <Button
                     variant="ghost"

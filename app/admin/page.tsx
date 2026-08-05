@@ -28,7 +28,7 @@ import { useToast } from "@/components/toaster-context";
 import { listAllTasks, cancelTask, reopenTask, deleteTask } from "@/lib/db";
 import { toDate } from "@/lib/db";
 import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
-import { TASK_STATUS_LABEL } from "@/lib/types";
+import { TASK_STATUS_LABEL, rateFor } from "@/lib/types";
 import type { Task } from "@/lib/types";
 
 export default function AdminPage() {
@@ -45,7 +45,7 @@ export default function AdminPage() {
       setTasks(data);
     } catch (err) {
       console.error(err);
-      toast("error", "載入任務失敗");
+      toast("error", "載入工作失敗");
     } finally {
       setRefreshing(false);
     }
@@ -93,7 +93,7 @@ export default function AdminPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">管理後台</h1>
           <p className="text-muted-foreground mt-1">
-            建立、編輯、取消任務，並查看每個任務的報名名單
+            建立、編輯、取消工作，並查看每個工作的報名名單
           </p>
         </div>
         <div className="flex gap-2">
@@ -103,7 +103,7 @@ export default function AdminPage() {
           <Button asChild>
             <Link href="/admin/new" className="gap-2">
               <Plus className="h-4 w-4" />
-              建立新任務
+              建立新工作
             </Link>
           </Button>
         </div>
@@ -112,14 +112,14 @@ export default function AdminPage() {
       {tasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16 px-4 rounded-xl border border-dashed border-border/60 bg-card/30">
           <ClipboardList className="h-12 w-12 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-semibold mb-1">尚未建立任何任務</h3>
+          <h3 className="text-lg font-semibold mb-1">尚未建立任何工作</h3>
           <p className="text-sm text-muted-foreground max-w-md mb-4">
-            開始建立你的第一個 Helper 任務
+            開始建立你的第一個工作
           </p>
           <Button asChild>
             <Link href="/admin/new" className="gap-2">
               <Plus className="h-4 w-4" />
-              建立第一個任務
+              建立第一個工作
             </Link>
           </Button>
         </div>
@@ -133,14 +133,14 @@ export default function AdminPage() {
                 try {
                   if (action === "cancel") {
                     await cancelTask(task.id);
-                    toast("success", "任務已取消");
+                    toast("success", "工作已取消");
                   } else if (action === "reopen") {
                     await reopenTask(task.id);
-                    toast("success", "任務已重新開放");
+                    toast("success", "工作已重新開放");
                   } else if (action === "delete") {
-                    if (!confirm("確定刪除此任務？此操作無法復原。")) return;
+                    if (!confirm("確定刪除此工作？此操作無法復原。")) return;
                     await deleteTask(task.id);
-                    toast("success", "任務已刪除");
+                    toast("success", "工作已刪除");
                   }
                   await refresh();
                 } catch (err) {
@@ -197,7 +197,7 @@ function AdminTaskCard({
           </div>
           <div className="flex items-center gap-2 text-xs">
             <DollarSign className="h-3.5 w-3.5" />
-            {formatCurrency(task.hourlyRate)}／小時
+            TA {formatCurrency(rateFor(task, "ta"))} · MT {formatCurrency(rateFor(task, "mt"))}／小時
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5" />
@@ -221,7 +221,7 @@ function AdminTaskCard({
               className="flex-1"
               onClick={() => onAction("cancel")}
             >
-              取消任務
+              取消工作
             </Button>
           ) : task.status === "cancelled" ? (
             <Button

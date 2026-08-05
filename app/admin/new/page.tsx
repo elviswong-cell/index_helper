@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ArrowLeft, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,14 +24,16 @@ export default function NewTaskPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
-  // form state
   const [schoolName, setSchoolName] = useState("");
+  const [address, setAddress] = useState("");
+  const [mapUrl, setMapUrl] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [ta, setTa] = useState(1);
   const [mt, setMt] = useState(1);
-  const [hourlyRate, setHourlyRate] = useState(150);
+  const [taRate, setTaRate] = useState(150);
+  const [mtRate, setMtRate] = useState(200);
   const [notes, setNotes] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
@@ -57,14 +60,16 @@ export default function NewTaskPage() {
           startAt: start as unknown as Date,
           endAt: end as unknown as Date,
           positions: { ta, mt },
-          hourlyRate,
+          rates: { ta: taRate, mt: mtRate },
+          ...(address ? { address } : {}),
+          ...(mapUrl ? { mapUrl } : {}),
           ...(notes ? { notes } : {}),
           status: "open",
           createdBy: user.uid,
         } as never,
         user.uid,
       );
-      toast("success", "任務已建立");
+      toast("success", "工作已建立");
       router.push(`/admin/tasks/${id}`);
     } catch (err) {
       console.error(err);
@@ -78,7 +83,7 @@ export default function NewTaskPage() {
     return (
       <Card>
         <CardContent className="py-12 text-center text-muted-foreground">
-          需要管理員權限才能建立任務
+          需要管理員權限才能建立工作
         </CardContent>
       </Card>
     );
@@ -87,21 +92,19 @@ export default function NewTaskPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
-        <a href="/admin">
+        <Link href="/admin">
           <ArrowLeft className="h-4 w-4" />
           返回後台
-        </a>
+        </Link>
       </Button>
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
             <Plus className="h-5 w-5" />
-            建立新任務
+            建立新工作
           </CardTitle>
-          <CardDescription>
-            填寫以下資訊以建立一個新的 Helper 招聘任務
-          </CardDescription>
+          <CardDescription>填寫以下資訊以建立一個新的工作</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -113,6 +116,27 @@ export default function NewTaskPage() {
                 value={schoolName}
                 onChange={(e) => setSchoolName(e.target.value)}
                 required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="address">學校地址</Label>
+              <Input
+                id="address"
+                placeholder="例如：九龍深水埗東京街28號"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="mapUrl">Google 地圖連結</Label>
+              <Input
+                id="mapUrl"
+                type="url"
+                placeholder="https://maps.app.goo.gl/..."
+                value={mapUrl}
+                onChange={(e) => setMapUrl(e.target.value)}
               />
             </div>
 
@@ -149,7 +173,7 @@ export default function NewTaskPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ta">TA 名額</Label>
                 <Input
@@ -158,6 +182,17 @@ export default function NewTaskPage() {
                   min={0}
                   value={ta}
                   onChange={(e) => setTa(Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="taRate">TA 時薪 (HK$)</Label>
+                <Input
+                  id="taRate"
+                  type="number"
+                  min={0}
+                  step={10}
+                  value={taRate}
+                  onChange={(e) => setTaRate(Number(e.target.value))}
                 />
               </div>
               <div className="space-y-2">
@@ -171,14 +206,14 @@ export default function NewTaskPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="rate">時薪 (HK$)</Label>
+                <Label htmlFor="mtRate">MT 時薪 (HK$)</Label>
                 <Input
-                  id="rate"
+                  id="mtRate"
                   type="number"
                   min={0}
                   step={10}
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(Number(e.target.value))}
+                  value={mtRate}
+                  onChange={(e) => setMtRate(Number(e.target.value))}
                 />
               </div>
             </div>
@@ -191,16 +226,12 @@ export default function NewTaskPage() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="例如：需帶電腦、需提前 10 分鐘到場..."
-                className="flex w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               />
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button
-                type="submit"
-                disabled={submitting || !configured}
-                className="gap-2"
-              >
+              <Button type="submit" disabled={submitting || !configured} className="gap-2">
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -209,7 +240,7 @@ export default function NewTaskPage() {
                 ) : (
                   <>
                     <Plus className="h-4 w-4" />
-                    建立任務
+                    建立工作
                   </>
                 )}
               </Button>

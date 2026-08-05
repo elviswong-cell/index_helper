@@ -19,7 +19,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/tasks");
+      router.replace("/");
     }
   }, [user, loading, router]);
 
@@ -30,9 +30,9 @@ export default function LoginPage() {
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 shadow-lg shadow-cyan-500/30">
             <Sparkles className="h-7 w-7 text-background" strokeWidth={2.5} />
           </div>
-          <CardTitle className="text-2xl">登入 Helper 招聘平台</CardTitle>
+          <CardTitle className="text-2xl">登入 INDEX ACADEMY</CardTitle>
           <CardDescription>
-            使用你的 Google 帳號登入，即可瀏覽並報名任務
+            使用你的 Google 帳號登入，即可報名工作
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

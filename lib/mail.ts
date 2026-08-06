@@ -100,6 +100,56 @@ export function buildStatusEmailPayload(
 }
 
 /**
+ * Emails a generated invoice PDF to the accounts team. The route decides who
+ * receives it — this only supplies the document and a readable summary.
+ */
+export async function sendInvoiceEmail(args: {
+  userName: string;
+  userEmail: string;
+  month: string;
+  total: number;
+  bankName: string;
+  bankAccount: string;
+  bankAccountName: string;
+  items: {
+    startAt: Task["startAt"];
+    schoolName: string;
+    courseName: string;
+    hours: number;
+    rateUnit: "hourly" | "daily";
+    amount: number;
+  }[];
+  pdfBase64: string;
+  fileName: string;
+}): Promise<string[]> {
+  const res = await fetch("/api/send-invoice", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userName: args.userName,
+      userEmail: args.userEmail,
+      month: args.month,
+      total: `HK$${args.total.toLocaleString("en-US")}`,
+      bankName: args.bankName,
+      bankAccount: args.bankAccount,
+      bankAccountName: args.bankAccountName,
+      items: args.items.map((i) => ({
+        date: fmtDate(toJsDate(i.startAt)),
+        schoolName: i.schoolName,
+        courseName: i.courseName,
+        time: i.rateUnit === "daily" ? "1 day" : `${i.hours} hr`,
+        amount: `HK$${i.amount.toLocaleString("en-US")}`,
+      })),
+      pdfBase64: args.pdfBase64,
+      fileName: args.fileName,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to send invoice");
+  return data.sentTo ?? [];
+}
+
+/**
  * Calls our own /api/send-confirmation route (which uses Resend's HTTP
  * API server-side) to notify an applicant their status changed.
  * Failures here are non-fatal — the status change already succeeded —

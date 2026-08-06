@@ -59,3 +59,11 @@ export function roundHours(hours: number): number {
 export function formatCurrency(amount: number): string {
   return `$${amount.toLocaleString("zh-Hant")}`;
 }
+
+/** "2026-07" -> "Jul 2026" / "2026年7月" */
+export function formatMonth(key: string, lang: "en" | "zh"): string {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  if (lang === "zh") return `${y}年${m}月`;
+  return format(new Date(y, m - 1, 1), "MMM yyyy");
+}

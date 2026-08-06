@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   LogIn,
   LogOut,
+  Receipt,
   Settings,
   ShieldCheck,
 } from "lucide-react";
@@ -23,6 +24,7 @@ export function Header() {
   const NAV = [
     { href: "/", label: t("nav_jobs"), icon: Briefcase },
     { href: "/my-registrations", label: t("nav_my_registrations"), icon: CalendarCheck, auth: true },
+    { href: "/invoices", label: t("nav_invoices"), icon: Receipt, auth: true },
     { href: "/settings", label: t("nav_settings"), icon: Settings, auth: true },
     { href: "/admin", label: t("nav_admin"), icon: ShieldCheck, admin: true },
   ];

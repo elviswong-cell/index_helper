@@ -9,6 +9,7 @@ import {
   DollarSign,
   Edit,
   Plus,
+  Receipt,
   ShieldCheck,
   Trash2,
   Users,
@@ -98,7 +99,19 @@ export default function AdminPage() {
           <h1 className="text-3xl font-bold tracking-tight">{t("admin_title")}</h1>
           <p className="text-muted-foreground mt-1">{t("admin_subtitle")}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline">
+            <Link href="/admin/tutors" className="gap-2">
+              <Users className="h-4 w-4" />
+              {t("nav_tutors")}
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/admin/invoices" className="gap-2">
+              <Receipt className="h-4 w-4" />
+              {t("nav_admin_invoices")}
+            </Link>
+          </Button>
           <Button variant="outline" onClick={refresh} disabled={refreshing}>
             {refreshing ? t("refreshing") : t("refresh")}
           </Button>

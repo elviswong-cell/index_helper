@@ -12,6 +12,7 @@ import {
   Clock,
   DollarSign,
   ExternalLink,
+  FileWarning,
   Hourglass,
   Loader2,
   MapPin,
@@ -19,6 +20,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
+import { TermsAndConduct } from "@/components/terms-and-conduct";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,12 +51,15 @@ import {
   lessonIdsFor,
   lessonStatusFor,
   lessonsOf,
+  isProfileComplete,
+  missingProfileFields,
   rateFor,
   rateUnitFor,
   type Position,
   type RegistrationStatus,
   type Task,
   type Registration,
+  type UserProfile,
 } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
 
@@ -70,7 +75,7 @@ export default function TaskDetailPage() {
   const [myReg, setMyReg] = useState<Registration | null>(null);
   const [position, setPosition] = useState<Position>("mt");
   const [selected, setSelected] = useState<string[]>([]);
-  const [phone, setPhone] = useState("");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -87,11 +92,10 @@ export default function TaskDetailPage() {
         setSelected(lessonsOf(fetched).map((l) => l.id));
         if (user) {
           setMyReg(regs.find((r) => r.userId === user.uid) ?? null);
-          const profile = await getUserProfile(user.uid);
-          setPhone(profile?.phone ?? "");
+          setProfile(await getUserProfile(user.uid));
         } else {
           setMyReg(null);
-          setPhone("");
+          setProfile(null);
         }
       }
     } catch (err) {
@@ -109,8 +113,8 @@ export default function TaskDetailPage() {
 
   async function handleRegister() {
     if (!user || !task) return;
-    if (!phone) {
-      toast("error", t("phone_required_toast"));
+    if (!isProfileComplete(profile)) {
+      toast("error", t("profile_required_toast"));
       return;
     }
     if (selected.length === 0) {
@@ -124,7 +128,7 @@ export default function TaskDetailPage() {
         userId: user.uid,
         userEmail: user.email ?? "",
         userName: user.displayName ?? user.email ?? t("anonymous"),
-        userPhone: phone,
+        userPhone: profile?.phone ?? "",
         position,
         lessonIds: selected,
       });
@@ -181,6 +185,7 @@ export default function TaskDetailPage() {
   const isOpen = task.status === "open";
   const pastDeadline = !!deadline && new Date() > deadline;
   const unit = rateUnitFor(task);
+  const missing = missingProfileFields(profile);
 
   function toggleLesson(lessonId: string) {
     setSelected((prev) =>
@@ -357,13 +362,23 @@ export default function TaskDetailPage() {
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 text-center text-sm text-muted-foreground">
                   {t("past_deadline")}
                 </div>
-              ) : !phone ? (
+              ) : missing.length > 0 ? (
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-3">
                   <div className="flex items-start gap-2">
-                    <Phone className="h-5 w-5 shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
+                    <FileWarning className="h-5 w-5 shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
                     <div>
-                      <p className="font-medium text-sm">{t("no_phone_title")}</p>
-                      <p className="text-sm text-muted-foreground">{t("no_phone_desc")}</p>
+                      <p className="font-medium text-sm">{t("profile_required_title")}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {t("profile_required_desc")}
+                      </p>
+                      <ul className="mt-2 space-y-0.5 text-sm">
+                        {missing.map((f) => (
+                          <li key={f} className="flex items-center gap-1.5">
+                            <span className="h-1 w-1 rounded-full bg-[hsl(var(--warning))]" />
+                            {t(`field_${f}` as never)}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
                   <Button asChild>
@@ -401,7 +416,7 @@ export default function TaskDetailPage() {
 
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Phone className="h-4 w-4" />
-                    {t("contact_phone")}: {phone}
+                    {t("contact_phone")}: {profile?.phone}
                     <Link href="/settings" className="text-primary hover:underline">
                       {t("edit")}
                     </Link>
@@ -428,6 +443,8 @@ export default function TaskDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <TermsAndConduct />
     </div>
   );
 }

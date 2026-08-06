@@ -35,8 +35,9 @@ pnpm install
 1. 前往 https://console.firebase.google.com/ 建立新專案
 2. 啟用 **Authentication** → **Google** 登入
 3. 啟用 **Firestore Database**（以 production mode 開始）
-4. 取得 Firebase config（Web app）
-5. 複製 `.env.example` 為 `.env.local` 並填入：
+4. 啟用 **Cloud Storage**（存放 SCRC 文件）
+5. 取得 Firebase config（Web app）
+6. 複製 `.env.example` 為 `.env.local` 並填入：
 
 ```env
 NEXT_PUBLIC_FIREBASE_API_KEY=...
@@ -60,11 +61,52 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create, update, delete: if request.auth != null && request.auth.token.admin == true;
     }
-    // Registrations: users can read/write their own
+    // Registrations: users create/cancel their own; admins review everyone's
     match /registrations/{regId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+    }
+    // Profiles: users manage their own; admins read and correct any
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write, delete: if isAdmin();
+    }
+    // Invoices: freelancers submit and read their own; admins manage all
+    match /invoices/{invoiceId} {
+      allow read: if request.auth != null &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}
+```
+
+⚠️ 上面用 `request.auth.token.admin` 作管理員判斷。應用程式本身用 `NEXT_PUBLIC_ADMIN_UIDS`
+只控制介面顯示，**並不是安全邊界** — 必須同時設定 Firebase custom claims（或把
+`isAdmin()` 改成讀 `users/{uid}.admin` 欄位），否則規則會擋住管理員的操作。
+
+### Storage 規則 Storage rules
+
+SCRC 是敏感個人文件，只有本人與管理員可以讀取：
+
+```
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /scrc/{uid}/{file} {
+      allow read: if request.auth != null &&
+        (request.auth.uid == uid || request.auth.token.admin == true);
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024;
+      allow delete: if request.auth != null &&
+        (request.auth.uid == uid || request.auth.token.admin == true);
     }
   }
 }
@@ -221,6 +263,51 @@ git push -u origin main
 - 備註／說明（如有）
 
 需要在環境變數設定 `RESEND_API_KEY`，以及可選的 `RESEND_FROM_EMAIL`。
+
+## 個人資料與 SCRC Profile & SCRC
+
+報名任何工作之前，導師必須在「設定」填妥：
+
+| 欄位 | 說明 |
+| --- | --- |
+| 電話號碼 | 聯絡用 |
+| SCRC 文件 | 性罪行定罪紀錄查核結果（圖片或 PDF），存放於 Firebase Storage |
+| 銀行名稱 / 帳戶號碼 / 帳戶持有人姓名 | 出糧用，並會印在 Invoice 上 |
+
+`registerForTask()` 會在伺服器邏輯再檢查一次，資料不齊全就無法報名。
+上載的圖片會在瀏覽器先縮至最長邊 1600px 才上傳，避免手機相片過大。
+
+## Invoice 流程 Invoicing
+
+### 導師
+
+1. 課堂**結束後**才會在 `/invoices` 出現（未上完的堂不能開 Invoice）
+2. 選擇帳單月份 → 勾選該月已完成的堂數（預設全選）
+3. 「發送 Invoice」會在瀏覽器產生 PDF，寄至 `avery@indexacademy.io` 與
+   `joe@indexgame.hk`，同時在 Firestore 留底
+4. 每人每月一張：再次遞交同月 Invoice，舊的會標記為 `superseded`（以最新一張為準）
+5. 可隨時查看狀態：已收到 Invoice → 已出糧
+
+### 管理員
+
+`/admin/invoices` 可按狀態／月份篩選、下載 PDF、標記「已出糧」。
+
+### PDF 產生方式
+
+Invoice 依照公司範本以 Canvas 繪製，再包成 A4 PDF（`lib/invoice-pdf.ts`）。
+之所以用點陣而非 PDF 文字圖層，是因為學校名稱是中文 — 內嵌 CJK 字型會令
+bundle 增加數 MB，而瀏覽器本身已有中文字型，繪製後輸出既細（約 130KB）又穩定。
+
+收件者寫死在 `/api/send-invoice` 伺服器端，客戶端只能提供 PDF，不能指定收件地址。
+
+## 導師資料庫 Tutor database
+
+`/admin/tutors`：
+
+- 搜尋姓名／電郵／電話，並可按月份篩選堂數
+- 每位導師顯示 SCRC 連結、銀行資料、已確認堂數、已完成金額
+- 點入可查看逐堂紀錄與 Invoice 紀錄，並可修改或刪除帳戶資料
+  （刪除只清除個人資料與 SCRC，上堂與 Invoice 紀錄保留）
 
 ## 授權 License
 

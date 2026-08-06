@@ -19,9 +19,14 @@ import {
   aggregateStatus,
   countsByLesson,
   findLesson,
+  itemKey,
   lessonIdsFor,
   lessonStatusMap,
   lessonsOf,
+  missingProfileFields,
+  type Invoice,
+  type InvoiceItem,
+  type InvoiceStatus,
   type Task,
   type Registration,
   type Position,
@@ -119,8 +124,10 @@ export async function registerForTask(args: {
 }): Promise<{ id: string; status: RegistrationStatus }> {
   if (!db) throw new Error("Firestore not initialized");
 
-  if (!args.userPhone) {
-    throw new Error("請先在「設定」填寫電話號碼後才能報名");
+  // SCRC and payment details must be on file before anyone works a job.
+  const profile = await getUserProfile(args.userId);
+  if (missingProfileFields(profile).length > 0) {
+    throw new Error("請先在「設定」完成個人資料（電話、SCRC、銀行資料）後才能報名");
   }
 
   const task = await getTask(args.taskId);
@@ -293,7 +300,7 @@ export async function getUserProfile(
 
 export async function saveUserProfile(
   uid: string,
-  data: { phone: string; displayName?: string; email?: string },
+  data: Partial<Omit<UserProfile, "uid" | "updatedAt">>,
 ): Promise<void> {
   if (!db) throw new Error("Firestore not initialized");
   await setDoc(
@@ -301,4 +308,126 @@ export async function saveUserProfile(
     { ...data, updatedAt: serverTimestamp() },
     { merge: true },
   );
+}
+
+/** Every registered tutor. Admin-only in practice — see Firestore rules. */
+export async function listUserProfiles(): Promise<UserProfile[]> {
+  if (!db) throw new Error("Firestore not initialized");
+  const snap = await getDocs(collection(db, "users"));
+  return snap.docs.map((d) => ({ uid: d.id, ...(d.data() as Omit<UserProfile, "uid">) }));
+}
+
+/** Clears a tutor's stored data. The Firebase Auth login itself is untouched. */
+export async function deleteUserProfile(uid: string): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await deleteDoc(doc(db, "users", uid));
+}
+
+export async function listAllRegistrations(): Promise<Registration[]> {
+  if (!db) throw new Error("Firestore not initialized");
+  const snap = await getDocs(collection(db, "registrations"));
+  return snap.docs.map(
+    (d) => ({ id: d.id, ...(d.data() as Omit<Registration, "id">) }),
+  );
+}
+
+// ---------- Invoices ----------
+
+/**
+ * Records an invoice the freelancer just sent. House rule is one invoice per
+ * person per month, so any earlier invoice for the same month is marked
+ * superseded rather than deleted — the paper trail stays intact.
+ */
+export async function submitInvoice(args: {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  month: string;
+  items: InvoiceItem[];
+  bankName: string;
+  bankAccount: string;
+  bankAccountName: string;
+}): Promise<string> {
+  if (!db) throw new Error("Firestore not initialized");
+  if (args.items.length === 0) throw new Error("請至少選擇一堂已完成的課堂");
+
+  const previous = (await listInvoicesForUser(args.userId)).filter(
+    (inv) => inv.month === args.month && inv.status !== "superseded",
+  );
+
+  const total =
+    Math.round(args.items.reduce((sum, i) => sum + i.amount, 0) * 100) / 100;
+
+  const ref = await addDoc(collection(db, "invoices"), {
+    ...args,
+    total,
+    status: "submitted" as InvoiceStatus,
+    submittedAt: serverTimestamp(),
+  });
+
+  for (const inv of previous) {
+    await updateDoc(doc(db, "invoices", inv.id), { status: "superseded" });
+  }
+
+  return ref.id;
+}
+
+export async function listInvoicesForUser(userId: string): Promise<Invoice[]> {
+  if (!db) throw new Error("Firestore not initialized");
+  const q = query(collection(db, "invoices"), where("userId", "==", userId));
+  const snap = await getDocs(q);
+  return sortInvoices(
+    snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Invoice, "id">) })),
+  );
+}
+
+export async function listAllInvoices(): Promise<Invoice[]> {
+  if (!db) throw new Error("Firestore not initialized");
+  const snap = await getDocs(collection(db, "invoices"));
+  return sortInvoices(
+    snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Invoice, "id">) })),
+  );
+}
+
+/** Newest first. Sorted client-side so no composite index is needed. */
+function sortInvoices(invoices: Invoice[]): Invoice[] {
+  return [...invoices].sort((a, b) => {
+    const at = toDate(a.submittedAt)?.getTime() ?? 0;
+    const bt = toDate(b.submittedAt)?.getTime() ?? 0;
+    return bt - at;
+  });
+}
+
+export async function markInvoicePaid(
+  invoiceId: string,
+  adminUid: string,
+): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await updateDoc(doc(db, "invoices", invoiceId), {
+    status: "paid" as InvoiceStatus,
+    paidAt: serverTimestamp(),
+    paidBy: adminUid,
+  });
+}
+
+export async function markInvoiceUnpaid(invoiceId: string): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await updateDoc(doc(db, "invoices", invoiceId), {
+    status: "submitted" as InvoiceStatus,
+  });
+}
+
+export async function deleteInvoice(invoiceId: string): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await deleteDoc(doc(db, "invoices", invoiceId));
+}
+
+/** Lesson keys already billed on a live (non-superseded) invoice. */
+export function invoicedKeys(invoices: Invoice[]): Set<string> {
+  const keys = new Set<string>();
+  for (const inv of invoices) {
+    if (inv.status === "superseded") continue;
+    for (const item of inv.items) keys.add(itemKey(item.taskId, item.lessonId));
+  }
+  return keys;
 }

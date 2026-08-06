@@ -85,8 +85,91 @@ export interface UserProfile {
   phone: string;
   displayName?: string;
   email?: string;
+  /** Sexual Conviction Record Check — Storage download URL of the uploaded image. */
+  scrcUrl?: string;
+  scrcUploadedAt?: Timestamp | Date;
+  /** Payment details. `bankAccountName` must match the account holder. */
+  bankName?: string;
+  bankAccount?: string;
+  bankAccountName?: string;
   updatedAt?: Timestamp | Date;
 }
+
+/** Fields an applicant must supply before they may apply for any job. */
+export const REQUIRED_PROFILE_FIELDS = [
+  "phone",
+  "scrcUrl",
+  "bankName",
+  "bankAccount",
+  "bankAccountName",
+] as const;
+
+export type RequiredProfileField = (typeof REQUIRED_PROFILE_FIELDS)[number];
+
+export function missingProfileFields(
+  profile: UserProfile | null | undefined,
+): RequiredProfileField[] {
+  if (!profile) return [...REQUIRED_PROFILE_FIELDS];
+  return REQUIRED_PROFILE_FIELDS.filter((f) => !String(profile[f] ?? "").trim());
+}
+
+export function isProfileComplete(
+  profile: UserProfile | null | undefined,
+): boolean {
+  return missingProfileFields(profile).length === 0;
+}
+
+/**
+ * submitted = freelancer sent it, awaiting admin
+ * paid      = admin confirmed payment
+ * superseded = replaced by a later invoice for the same month (house rule:
+ *              one invoice per person per month, the latest one wins)
+ */
+export type InvoiceStatus = "submitted" | "paid" | "superseded";
+
+/** One completed lesson billed on an invoice. Snapshotted at submit time. */
+export interface InvoiceItem {
+  taskId: string;
+  lessonId: string;
+  /** Lesson start — kept so the invoice can be re-rendered and sorted. */
+  startAt: Timestamp | Date;
+  endAt: Timestamp | Date;
+  schoolName: string;
+  courseName: string;
+  position: Position;
+  hours: number;
+  rate: number;
+  rateUnit: RateUnit;
+  amount: number;
+}
+
+export interface Invoice {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  /** Billing month as "YYYY-MM". */
+  month: string;
+  items: InvoiceItem[];
+  total: number;
+  /** Payment details as they stood when the invoice was sent. */
+  bankName: string;
+  bankAccount: string;
+  bankAccountName: string;
+  status: InvoiceStatus;
+  submittedAt: Timestamp | Date;
+  paidAt?: Timestamp | Date;
+  paidBy?: string;
+}
+
+export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
+  submitted: "已收到 Invoice",
+  paid: "已出糧",
+  superseded: "已被新 Invoice 取代",
+};
+
+/** Monthly cut-off: invoices sent on or before this day are paid that month. */
+export const INVOICE_CUTOFF_DAY = 23;
 
 export interface AppUser {
   uid: string;
@@ -232,6 +315,91 @@ export function countsByLesson(
     }
   }
   return out;
+}
+
+// ---------- Invoicing ----------
+
+function asDate(value: Timestamp | Date): Date {
+  return value instanceof Date ? value : value.toDate();
+}
+
+/** "YYYY-MM" key used to group invoices by billing month. */
+export function monthKey(value: Timestamp | Date): string {
+  const d = asDate(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Lessons a person may bill for: the admin confirmed them AND the lesson has
+ * already finished. Lessons still to come are deliberately excluded — the
+ * invoice button must stay unavailable until the work is done.
+ */
+export function billableLessons(
+  reg: Registration,
+  task: Task,
+  now: Date = new Date(),
+): Lesson[] {
+  return lessonsFor(reg, task).filter(
+    (lesson) =>
+      lessonStatusFor(reg, lesson.id) === "confirmed" &&
+      asDate(lesson.endAt).getTime() <= now.getTime(),
+  );
+}
+
+/**
+ * Split "陳南昌夫人小學_VR art" into school and course. Job titles in this
+ * system are conventionally "<school>_<course>"; without the separator the
+ * whole string is the school and the lesson label (if any) is the course.
+ */
+export function splitSchoolCourse(
+  schoolName: string,
+  lessonTitle?: string,
+): { school: string; course: string } {
+  const idx = schoolName.indexOf("_");
+  if (idx > 0) {
+    return {
+      school: schoolName.slice(0, idx).trim(),
+      course: schoolName.slice(idx + 1).trim() || (lessonTitle ?? ""),
+    };
+  }
+  return { school: schoolName.trim(), course: lessonTitle ?? "" };
+}
+
+/** Pay for one lesson: hourly rates bill by duration, daily rates bill flat. */
+export function lessonAmount(task: Task, lesson: Lesson, position: Position): number {
+  const rate = rateFor(task, position);
+  if (rateUnitFor(task) === "daily") return rate;
+  const hours =
+    (asDate(lesson.endAt).getTime() - asDate(lesson.startAt).getTime()) / 36e5;
+  return Math.round(rate * hours * 100) / 100;
+}
+
+export function buildInvoiceItem(
+  task: Task,
+  lesson: Lesson,
+  position: Position,
+): InvoiceItem {
+  const { school, course } = splitSchoolCourse(task.schoolName, lesson.title);
+  const hours =
+    (asDate(lesson.endAt).getTime() - asDate(lesson.startAt).getTime()) / 36e5;
+  return {
+    taskId: task.id,
+    lessonId: lesson.id,
+    startAt: lesson.startAt,
+    endAt: lesson.endAt,
+    schoolName: school,
+    courseName: course,
+    position,
+    hours: Math.round(hours * 100) / 100,
+    rate: rateFor(task, position),
+    rateUnit: rateUnitFor(task),
+    amount: lessonAmount(task, lesson, position),
+  };
+}
+
+/** Stable key for "this lesson of this job", used to dedupe across invoices. */
+export function itemKey(taskId: string, lessonId: string): string {
+  return `${taskId}::${lessonId}`;
 }
 
 /** Confirmed applicants for one lesson + position, in application order. */

@@ -1,13 +1,20 @@
-import { POSITION_LABEL, type Registration } from "./types";
+import { type Registration } from "./types";
+
+const POSITION_EN: Record<Registration["position"], string> = {
+  mt: "MT (Lead Mentor)",
+  ta: "TA (Teaching Assistant)",
+};
 
 /**
  * Calls our own /api/send-confirmation route (which uses Resend's HTTP
- * API server-side). Failures here are non-fatal — the registration is
- * already confirmed either way — so callers should catch and just warn.
+ * API server-side) to notify an applicant their status changed.
+ * Failures here are non-fatal — the status change already succeeded —
+ * so callers should catch and just warn.
  */
-export async function sendConfirmationEmail(
+export async function sendStatusEmail(
   registration: Registration,
   schoolName: string,
+  status: "confirmed" | "declined" | "reserve",
 ): Promise<void> {
   const res = await fetch("/api/send-confirmation", {
     method: "POST",
@@ -16,11 +23,12 @@ export async function sendConfirmationEmail(
       to: registration.userEmail,
       userName: registration.userName,
       schoolName,
-      position: POSITION_LABEL[registration.position],
+      position: POSITION_EN[registration.position],
+      status,
     }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "寄送確認郵件失敗");
+    throw new Error(data.error || "Failed to send email");
   }
 }

@@ -99,9 +99,8 @@ export async function listAllTasks(): Promise<Task[]> {
 }
 
 // ---------- Registrations ----------
-// All new registrations start as "waitlist" (pending admin review).
-// Admin manually confirms via confirmRegistration(), which checks capacity
-// and triggers a confirmation email.
+// All new registrations start as "pending" (awaiting admin review).
+// Admin manually moves them to confirmed / declined / reserve.
 export async function registerForTask(args: {
   taskId: string;
   userId: string;
@@ -134,7 +133,7 @@ export async function registerForTask(args: {
     throw new Error("你已經報名過這個工作");
   }
 
-  const status: RegistrationStatus = "waitlist";
+  const status: RegistrationStatus = "pending";
 
   const ref = await addDoc(collection(db, "registrations"), {
     taskId: args.taskId,
@@ -151,10 +150,10 @@ export async function registerForTask(args: {
 }
 
 /**
- * Admin confirms a pending (waitlist) registration.
+ * Admin confirms a pending registration.
  * Checks the position hasn't already filled up and marks it confirmed.
- * Sending the confirmation email is a separate step — call
- * sendConfirmationEmail() (in lib/mail.ts) after this succeeds.
+ * Sending the notification email is a separate step — call
+ * sendStatusEmail() (in lib/mail.ts) after this succeeds.
  */
 export async function confirmRegistration(
   registration: Registration,
@@ -171,6 +170,22 @@ export async function confirmRegistration(
   await updateDoc(doc(db, "registrations", registration.id), {
     status: "confirmed",
     confirmedAt: serverTimestamp(),
+  });
+}
+
+/** Admin declines a pending registration. */
+export async function declineRegistration(registration: Registration): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await updateDoc(doc(db, "registrations", registration.id), {
+    status: "declined",
+  });
+}
+
+/** Admin puts an applicant on the reserve (backup) list. */
+export async function reserveRegistration(registration: Registration): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await updateDoc(doc(db, "registrations", registration.id), {
+    status: "reserve",
   });
 }
 

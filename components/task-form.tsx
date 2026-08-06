@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { RateUnit } from "@/lib/types";
+import { useLang } from "@/lib/i18n";
 
 export interface TaskFormValues {
   schoolName: string;
@@ -60,6 +61,7 @@ export function TaskForm({
   onSubmit: (values: TaskFormValues) => Promise<void>;
   onCancel: () => void;
 }) {
+  const { t } = useLang();
   const [values, setValues] = useState<TaskFormValues>(initial);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -72,13 +74,13 @@ export function TaskForm({
     e.preventDefault();
     setError("");
     if (!values.date || !values.startTime || !values.endTime) {
-      setError("請填寫日期與時間");
+      setError(t("form_error_datetime"));
       return;
     }
     const start = new Date(`${values.date}T${values.startTime}:00`);
     const end = new Date(`${values.date}T${values.endTime}:00`);
     if (end <= start) {
-      setError("結束時間必須晚於開始時間");
+      setError(t("form_error_end_after_start"));
       return;
     }
     setSubmitting(true);
@@ -92,10 +94,10 @@ export function TaskForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-2">
-        <Label htmlFor="schoolName">學校／活動名稱 *</Label>
+        <Label htmlFor="schoolName">{t("form_school_name")}</Label>
         <Input
           id="schoolName"
-          placeholder="例如：陳南昌夫人小學_VR art"
+          placeholder={t("form_school_placeholder")}
           value={values.schoolName}
           onChange={(e) => set("schoolName", e.target.value)}
           required
@@ -103,17 +105,17 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="address">學校地址</Label>
+        <Label htmlFor="address">{t("form_address")}</Label>
         <Input
           id="address"
-          placeholder="例如：九龍深水埗東京街28號"
+          placeholder={t("form_address_placeholder")}
           value={values.address}
           onChange={(e) => set("address", e.target.value)}
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="mapUrl">Google 地圖連結</Label>
+        <Label htmlFor="mapUrl">{t("form_map_url")}</Label>
         <Input
           id="mapUrl"
           type="url"
@@ -125,7 +127,7 @@ export function TaskForm({
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="date">日期 *</Label>
+          <Label htmlFor="date">{t("form_date")}</Label>
           <Input
             id="date"
             type="date"
@@ -135,7 +137,7 @@ export function TaskForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="startTime">開始時間 *</Label>
+          <Label htmlFor="startTime">{t("form_start_time")}</Label>
           <Input
             id="startTime"
             type="time"
@@ -145,7 +147,7 @@ export function TaskForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="endTime">結束時間 *</Label>
+          <Label htmlFor="endTime">{t("form_end_time")}</Label>
           <Input
             id="endTime"
             type="time"
@@ -157,7 +159,7 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label>薪資單位</Label>
+        <Label>{t("form_rate_unit")}</Label>
         <div className="flex gap-2">
           <button
             type="button"
@@ -168,7 +170,7 @@ export function TaskForm({
                 : "border-border bg-white/50 text-muted-foreground"
             }`}
           >
-            按小時
+            {t("form_rate_hourly")}
           </button>
           <button
             type="button"
@@ -179,14 +181,14 @@ export function TaskForm({
                 : "border-border bg-white/50 text-muted-foreground"
             }`}
           >
-            按日
+            {t("form_rate_daily")}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="mt">MT 名額</Label>
+          <Label htmlFor="mt">{t("form_mt_slots")}</Label>
           <Input
             id="mt"
             type="number"
@@ -197,7 +199,7 @@ export function TaskForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="mtRate">
-            MT {values.rateUnit === "hourly" ? "時薪" : "日薪"} (HK$)
+            {t(values.rateUnit === "hourly" ? "form_mt_rate_hourly" : "form_mt_rate_daily")}
           </Label>
           <Input
             id="mtRate"
@@ -209,7 +211,7 @@ export function TaskForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ta">TA 名額</Label>
+          <Label htmlFor="ta">{t("form_ta_slots")}</Label>
           <Input
             id="ta"
             type="number"
@@ -220,7 +222,7 @@ export function TaskForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="taRate">
-            TA {values.rateUnit === "hourly" ? "時薪" : "日薪"} (HK$)
+            {t(values.rateUnit === "hourly" ? "form_ta_rate_hourly" : "form_ta_rate_daily")}
           </Label>
           <Input
             id="taRate"
@@ -234,7 +236,7 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label>報名截止時間（選填）</Label>
+        <Label>{t("form_deadline")}</Label>
         <div className="grid grid-cols-2 gap-3">
           <Input
             type="date"
@@ -250,7 +252,7 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="meetUrl">Google Meet 連結（選填）</Label>
+        <Label htmlFor="meetUrl">{t("form_meet_url")}</Label>
         <Input
           id="meetUrl"
           type="url"
@@ -262,7 +264,7 @@ export function TaskForm({
 
       {values.meetUrl && (
         <div className="space-y-2">
-          <Label>會議日期與時間（選填）</Label>
+          <Label>{t("form_meet_datetime")}</Label>
           <div className="grid grid-cols-2 gap-3">
             <Input
               type="date"
@@ -279,13 +281,13 @@ export function TaskForm({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="notes">備註（可選）</Label>
+        <Label htmlFor="notes">{t("form_notes")}</Label>
         <textarea
           id="notes"
           rows={3}
           value={values.notes}
           onChange={(e) => set("notes", e.target.value)}
-          placeholder="例如：需帶電腦、需提前 10 分鐘到場..."
+          placeholder={t("form_notes_placeholder")}
           className="flex w-full rounded-xl border border-input bg-white/70 backdrop-blur px-3.5 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         />
       </div>
@@ -307,7 +309,7 @@ export function TaskForm({
           )}
         </Button>
         <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
-          取消
+          {t("cancel")}
         </Button>
       </div>
     </form>

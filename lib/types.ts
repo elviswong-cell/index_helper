@@ -6,8 +6,13 @@ export const POSITIONS: Position[] = ["mt", "ta"];
 
 export type TaskStatus = "open" | "closed" | "cancelled";
 
-/** waitlist = pending admin review; confirmed = admin approved */
-export type RegistrationStatus = "confirmed" | "waitlist";
+/**
+ * pending = just applied, awaiting admin review
+ * confirmed = admin approved, counts toward capacity
+ * declined = admin rejected
+ * reserve = admin put on the backup/reserve list (doesn't count toward capacity)
+ */
+export type RegistrationStatus = "pending" | "confirmed" | "declined" | "reserve";
 
 export type RateUnit = "hourly" | "daily";
 
@@ -81,8 +86,10 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 export const REGISTRATION_STATUS_LABEL: Record<RegistrationStatus, string> = {
+  pending: "待審核",
   confirmed: "已確認",
-  waitlist: "待審核",
+  declined: "已拒絕",
+  reserve: "後備",
 };
 
 export const RATE_UNIT_LABEL: Record<RateUnit, string> = {

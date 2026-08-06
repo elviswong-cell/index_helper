@@ -268,11 +268,25 @@ export default function TaskDetailPage() {
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <CheckCircle2
-                      className={`h-5 w-5 ${myReg.status === "confirmed" ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}
+                      className={`h-5 w-5 ${
+                        myReg.status === "confirmed"
+                          ? "text-[hsl(var(--success))]"
+                          : myReg.status === "declined"
+                            ? "text-destructive"
+                            : "text-[hsl(var(--warning))]"
+                      }`}
                     />
                     <span className="font-medium">
                       {t("already_applied")} {t(myReg.position === "mt" ? "pos_mt" : "pos_ta")} —{" "}
-                      {myReg.status === "confirmed" ? t("status_confirmed") : t("status_pending")}
+                      {t(
+                        myReg.status === "confirmed"
+                          ? "status_confirmed"
+                          : myReg.status === "declined"
+                            ? "status_declined"
+                            : myReg.status === "reserve"
+                              ? "status_reserve"
+                              : "status_pending",
+                      )}
                     </span>
                   </div>
                   <Button variant="outline" onClick={handleCancel} className="w-full sm:w-auto">

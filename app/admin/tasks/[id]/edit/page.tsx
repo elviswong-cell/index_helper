@@ -17,6 +17,7 @@ import { useToast } from "@/components/toaster-context";
 import { getTask, updateTask, toDate } from "@/lib/db";
 import { rateFor, rateUnitFor, type Task } from "@/lib/types";
 import { TaskForm, emptyTaskForm, type TaskFormValues } from "@/components/task-form";
+import { useLang } from "@/lib/i18n";
 
 function toDateInput(d: Date | null): string {
   if (!d) return "";
@@ -31,6 +32,7 @@ export default function EditTaskPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useLang();
   const router = useRouter();
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +45,7 @@ export default function EditTaskPage() {
         setTask(t);
       } catch (err) {
         console.error(err);
-        toast("error", "載入工作失敗");
+        toast("error", t("load_failed"));
       } finally {
         setLoading(false);
       }
@@ -79,23 +81,23 @@ export default function EditTaskPage() {
         ...(meetAt ? { meetAt: meetAt as unknown as Date } : {}),
         ...(values.notes ? { notes: values.notes } : {}),
       });
-      toast("success", "工作已更新");
+      toast("success", t("job_updated_toast"));
       router.push(`/admin/tasks/${task.id}`);
     } catch (err) {
       console.error(err);
-      toast("error", "更新失敗");
+      toast("error", t("job_update_failed"));
     }
   }
 
   if (loading) {
-    return <div className="text-muted-foreground">載入中...</div>;
+    return <div className="text-muted-foreground">{t("loading")}</div>;
   }
 
   if (!user?.isAdmin) {
     return (
       <Card>
         <CardContent className="py-12 text-center text-muted-foreground">
-          需要管理員權限
+          {t("need_admin_permission")}
         </CardContent>
       </Card>
     );
@@ -104,9 +106,9 @@ export default function EditTaskPage() {
   if (!task) {
     return (
       <div className="rounded-[20px] glass p-8 text-center">
-        <h2 className="text-lg font-medium mb-2">找不到此工作</h2>
+        <h2 className="text-lg font-medium mb-2">{t("job_not_found_admin")}</h2>
         <Button asChild variant="outline">
-          <Link href="/admin">返回後台</Link>
+          <Link href="/admin">{t("back_to_admin")}</Link>
         </Button>
       </div>
     );
@@ -143,7 +145,7 @@ export default function EditTaskPage() {
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href={`/admin/tasks/${task.id}`}>
           <ArrowLeft className="h-4 w-4" />
-          返回工作詳情
+          {t("back_to_job_detail")}
         </Link>
       </Button>
 
@@ -151,15 +153,15 @@ export default function EditTaskPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Pencil className="h-5 w-5" />
-            編輯工作
+            {t("edit_job_title")}
           </CardTitle>
-          <CardDescription>更新已發布工作的內容</CardDescription>
+          <CardDescription>{t("edit_job_desc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <TaskForm
             initial={initial}
-            submitLabel="儲存變更"
-            submittingLabel="儲存中..."
+            submitLabel={t("save_changes")}
+            submittingLabel={t("saving_short")}
             onSubmit={handleUpdate}
             onCancel={() => router.push(`/admin/tasks/${task.id}`)}
           />

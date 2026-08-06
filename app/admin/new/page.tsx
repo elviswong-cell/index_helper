@@ -15,15 +15,17 @@ import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import { createTask } from "@/lib/db";
 import { TaskForm, emptyTaskForm, type TaskFormValues } from "@/components/task-form";
+import { useLang } from "@/lib/i18n";
 
 export default function NewTaskPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useLang();
   const router = useRouter();
 
   async function handleCreate(values: TaskFormValues) {
     if (!user || !user.isAdmin) {
-      toast("error", "需要管理員權限");
+      toast("error", t("need_admin_permission"));
       return;
     }
     const start = new Date(`${values.date}T${values.startTime}:00`);
@@ -57,11 +59,11 @@ export default function NewTaskPage() {
         } as never,
         user.uid,
       );
-      toast("success", "工作已建立");
+      toast("success", t("job_created_toast"));
       router.push(`/admin/tasks/${id}`);
     } catch (err) {
       console.error(err);
-      toast("error", "建立失敗");
+      toast("error", t("job_create_failed"));
     }
   }
 
@@ -69,7 +71,7 @@ export default function NewTaskPage() {
     return (
       <Card>
         <CardContent className="py-12 text-center text-muted-foreground">
-          需要管理員權限才能建立工作
+          {t("need_admin_permission")}
         </CardContent>
       </Card>
     );
@@ -80,7 +82,7 @@ export default function NewTaskPage() {
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href="/admin">
           <ArrowLeft className="h-4 w-4" />
-          返回後台
+          {t("back_to_admin")}
         </Link>
       </Button>
 
@@ -88,15 +90,15 @@ export default function NewTaskPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Plus className="h-5 w-5" />
-            建立新工作
+            {t("create_job_title")}
           </CardTitle>
-          <CardDescription>填寫以下資訊以建立一個新的工作</CardDescription>
+          <CardDescription>{t("create_job_desc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <TaskForm
             initial={emptyTaskForm}
-            submitLabel="建立工作"
-            submittingLabel="建立中..."
+            submitLabel={t("create_job_btn")}
+            submittingLabel={t("creating")}
             onSubmit={handleCreate}
             onCancel={() => router.push("/admin")}
           />

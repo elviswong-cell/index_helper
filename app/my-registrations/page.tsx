@@ -160,10 +160,25 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
   const task = reg.task;
   const start = task ? toDate(task.startAt) : null;
   const end = task ? toDate(task.endAt) : null;
-  const isWaitlist = reg.status === "waitlist";
+  const isConfirmed = reg.status === "confirmed";
+  const isDeclined = reg.status === "declined";
+
+  const statusKey =
+    reg.status === "confirmed"
+      ? "status_confirmed"
+      : reg.status === "declined"
+        ? "status_declined"
+        : reg.status === "reserve"
+          ? "status_reserve"
+          : "status_pending";
+  const badgeVariant = isConfirmed
+    ? "success"
+    : isDeclined
+      ? "destructive"
+      : "warning";
 
   return (
-    <Card className={isWaitlist ? "opacity-70" : ""}>
+    <Card className={!isConfirmed ? "opacity-80" : ""}>
       <CardHeader>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="space-y-1">
@@ -171,9 +186,8 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
               {task?.schoolName ?? t("deleted_job")}
             </CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2 pt-1">
-              <Badge variant={isWaitlist ? "warning" : "success"}>
-                {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} ·{" "}
-                {t(reg.status === "confirmed" ? "status_confirmed" : "status_pending")}
+              <Badge variant={badgeVariant}>
+                {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} · {t(statusKey)}
               </Badge>
               <span className="text-xs">·</span>
               <span className="text-xs text-muted-foreground">{reg.userEmail}</span>

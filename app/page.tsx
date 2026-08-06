@@ -110,7 +110,7 @@ function TaskCard({ task }: { task: Task }) {
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            {formatTimeRange(start, end)}（{hours} 小時）
+            {formatTimeRange(start, end)} ({hours} {t("hours_suffix")})
           </span>
           {task.address && (
             <span className="flex items-start gap-2 text-xs">
@@ -126,7 +126,7 @@ function TaskCard({ task }: { task: Task }) {
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5 shrink-0" />
-            MT {task.positions.mt} 名 · TA {task.positions.ta} 名
+            MT {task.positions.mt} {t("slots_suffix")} · TA {task.positions.ta} {t("slots_suffix")}
           </span>
         </CardDescription>
       </CardHeader>

@@ -29,12 +29,22 @@ import {
   getTask,
   toDate,
 } from "@/lib/db";
-import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
+import {
+  formatDateRange,
+  formatDateShort,
+  formatTimeRange,
+  formatCurrency,
+  durationHours,
+  roundHours,
+} from "@/lib/utils";
 import {
   RATE_UNIT_LABEL,
+  lessonStatusFor,
+  lessonsFor,
   rateFor,
   rateUnitFor,
   type Registration,
+  type RegistrationStatus,
   type Task,
 } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
@@ -155,27 +165,42 @@ export default function MyRegistrationsPage() {
   );
 }
 
+function statusKeyOf(status: RegistrationStatus) {
+  return status === "confirmed"
+    ? "status_confirmed"
+    : status === "declined"
+      ? "status_declined"
+      : status === "reserve"
+        ? "status_reserve"
+        : "status_pending";
+}
+
+function badgeVariantOf(status: RegistrationStatus) {
+  return status === "confirmed"
+    ? "success"
+    : status === "declined"
+      ? "destructive"
+      : "warning";
+}
+
 function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
   const { t } = useLang();
   const task = reg.task;
-  const start = task ? toDate(task.startAt) : null;
-  const end = task ? toDate(task.endAt) : null;
+  const lessons = task ? lessonsFor(reg, task) : [];
+  const multi = lessons.length > 1;
+  const start = lessons.length > 0 ? toDate(lessons[0].startAt) : null;
+  const end =
+    lessons.length > 0 ? toDate(lessons[lessons.length - 1].endAt) : null;
+  const hours = roundHours(
+    lessons.reduce(
+      (sum, l) => sum + durationHours(toDate(l.startAt), toDate(l.endAt)),
+      0,
+    ),
+  );
   const isConfirmed = reg.status === "confirmed";
-  const isDeclined = reg.status === "declined";
-
-  const statusKey =
-    reg.status === "confirmed"
-      ? "status_confirmed"
-      : reg.status === "declined"
-        ? "status_declined"
-        : reg.status === "reserve"
-          ? "status_reserve"
-          : "status_pending";
-  const badgeVariant = isConfirmed
-    ? "success"
-    : isDeclined
-      ? "destructive"
-      : "warning";
+  const confirmedCount = task
+    ? lessons.filter((l) => lessonStatusFor(reg, l.id) === "confirmed").length
+    : 0;
 
   return (
     <Card className={!isConfirmed ? "opacity-80" : ""}>
@@ -186,11 +211,15 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
               {task?.schoolName ?? t("deleted_job")}
             </CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2 pt-1">
-              <Badge variant={badgeVariant}>
-                {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} · {t(statusKey)}
+              <Badge variant={badgeVariantOf(reg.status)}>
+                {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} ·{" "}
+                {t(statusKeyOf(reg.status))}
               </Badge>
-              <span className="text-xs">·</span>
-              <span className="text-xs text-muted-foreground">{reg.userEmail}</span>
+              {multi && (
+                <span className="text-xs text-muted-foreground">
+                  {confirmedCount} / {lessons.length} {t("lessons_confirmed_suffix")}
+                </span>
+              )}
             </CardDescription>
           </div>
           <Button
@@ -205,19 +234,61 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
         </div>
       </CardHeader>
       {task && (
-        <CardContent className="pt-0 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Calendar className="h-4 w-4" />
-            {formatDate(start)}
+        <CardContent className="pt-0 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Calendar className="h-4 w-4" />
+              {formatDateRange(start, end)}
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Clock className="h-4 w-4" />
+              {multi
+                ? `${lessons.length} ${t("lessons_count_suffix")} · ${hours} ${t("hours_suffix")} ${t("total_suffix")}`
+                : `${formatTimeRange(start, end)} (${hours} ${t("hours_suffix")})`}
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <DollarSign className="h-4 w-4" />
+              {formatCurrency(rateFor(task, reg.position))}
+              {RATE_UNIT_LABEL[rateUnitFor(task)]} (
+              {t(reg.position === "mt" ? "pos_mt" : "pos_ta")})
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            {formatTimeRange(start, end)} ({durationHours(start, end)} {t("hours_suffix")})
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <DollarSign className="h-4 w-4" />
-            {formatCurrency(rateFor(task, reg.position))}{RATE_UNIT_LABEL[rateUnitFor(task)]} ({t(reg.position === "mt" ? "pos_mt" : "pos_ta")})
-          </div>
+
+          {multi && (
+            <div className="overflow-x-auto rounded-2xl border border-border">
+              <table className="w-full min-w-[460px] text-sm">
+                <thead>
+                  <tr className="bg-white/60 text-xs text-muted-foreground">
+                    <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
+                    <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
+                    <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+                    <th className="px-3 py-2 text-left font-medium">{t("th_status")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lessons.map((lesson, i) => {
+                    const s = toDate(lesson.startAt);
+                    const e = toDate(lesson.endAt);
+                    const st = lessonStatusFor(reg, lesson.id);
+                    return (
+                      <tr key={lesson.id} className="border-t border-border/70">
+                        <td className="px-3 py-2.5 font-medium">
+                          {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                        </td>
+                        <td className="px-3 py-2.5">{formatDateShort(s)}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {formatTimeRange(s, e)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant={badgeVariantOf(st)}>{t(statusKeyOf(st))}</Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

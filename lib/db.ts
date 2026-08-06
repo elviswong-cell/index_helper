@@ -15,13 +15,19 @@ import {
   type QueryConstraint,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type {
-  Task,
-  Registration,
-  Position,
-  RegistrationStatus,
-  TaskStatus,
-  UserProfile,
+import {
+  aggregateStatus,
+  countsByLesson,
+  findLesson,
+  lessonIdsFor,
+  lessonStatusMap,
+  lessonsOf,
+  type Task,
+  type Registration,
+  type Position,
+  type RegistrationStatus,
+  type TaskStatus,
+  type UserProfile,
 } from "./types";
 
 // ---------- Admin UIDs (simple gating) ----------
@@ -108,6 +114,8 @@ export async function registerForTask(args: {
   userName: string;
   userPhone: string;
   position: Position;
+  /** Lessons the applicant can attend. Must be a non-empty subset of the task's lessons. */
+  lessonIds: string[];
 }): Promise<{ id: string; status: RegistrationStatus }> {
   if (!db) throw new Error("Firestore not initialized");
 
@@ -123,6 +131,12 @@ export async function registerForTask(args: {
     throw new Error("已過報名截止時間");
   }
 
+  const validIds = lessonsOf(task).map((l) => l.id);
+  const lessonIds = validIds.filter((id) => args.lessonIds.includes(id));
+  if (lessonIds.length === 0) {
+    throw new Error("請至少選擇一堂課");
+  }
+
   const dupQ = query(
     collection(db, "registrations"),
     where("taskId", "==", args.taskId),
@@ -134,6 +148,8 @@ export async function registerForTask(args: {
   }
 
   const status: RegistrationStatus = "pending";
+  const lessonStatuses: Record<string, RegistrationStatus> = {};
+  for (const id of lessonIds) lessonStatuses[id] = "pending";
 
   const ref = await addDoc(collection(db, "registrations"), {
     taskId: args.taskId,
@@ -142,6 +158,8 @@ export async function registerForTask(args: {
     userName: args.userName,
     userPhone: args.userPhone,
     position: args.position,
+    lessonIds,
+    lessonStatuses,
     status,
     createdAt: serverTimestamp(),
   });
@@ -150,43 +168,75 @@ export async function registerForTask(args: {
 }
 
 /**
- * Admin confirms a pending registration.
- * Checks the position hasn't already filled up and marks it confirmed.
- * Sending the notification email is a separate step — call
- * sendStatusEmail() (in lib/mail.ts) after this succeeds.
+ * Admin decides an application lesson by lesson — accept some dates,
+ * decline others. `decisions` is a lessonId -> status patch that gets merged
+ * onto whatever is already stored; the aggregate `status` is recomputed.
+ *
+ * Capacity is enforced per lesson (each lesson has its own MT/TA slots).
+ * Sending the notification email is a separate step — call sendStatusEmail()
+ * (in lib/mail.ts) with the returned registration after this succeeds.
  */
-export async function confirmRegistration(
+export async function decideRegistration(
   registration: Registration,
   task: Task,
-): Promise<void> {
+  decisions: Record<string, RegistrationStatus>,
+): Promise<Registration> {
   if (!db) throw new Error("Firestore not initialized");
 
-  const confirmedCount = await countConfirmed(task.id, registration.position);
-  const cap = task.positions[registration.position];
-  if (confirmedCount >= cap) {
-    throw new Error("此職位名額已滿，無法確認");
+  const applied = lessonIdsFor(registration, task);
+  const current = lessonStatusMap(registration, task);
+  const next: Record<string, RegistrationStatus> = { ...current };
+
+  const newlyConfirmed: string[] = [];
+  for (const [lessonId, status] of Object.entries(decisions)) {
+    if (!applied.includes(lessonId)) continue;
+    if (current[lessonId] === status) continue;
+    next[lessonId] = status;
+    if (status === "confirmed") newlyConfirmed.push(lessonId);
   }
 
-  await updateDoc(doc(db, "registrations", registration.id), {
-    status: "confirmed",
-    confirmedAt: serverTimestamp(),
-  });
+  if (newlyConfirmed.length > 0) {
+    const others = (await listRegistrationsForTask(task.id)).filter(
+      (r) => r.id !== registration.id,
+    );
+    const counts = countsByLesson(task, others);
+    const cap = task.positions[registration.position];
+    for (const lessonId of newlyConfirmed) {
+      const used = counts[lessonId]?.[registration.position] ?? 0;
+      if (used >= cap) {
+        const lesson = findLesson(task, lessonId);
+        const label = lesson?.title || formatLessonDay(lesson);
+        throw new Error(
+          `「${label}」的${registration.position.toUpperCase()}名額已滿，無法確認`,
+        );
+      }
+    }
+  }
+
+  const status = aggregateStatus(Object.values(next));
+  const patch: Record<string, unknown> = { lessonStatuses: next, status };
+  if (status === "confirmed" && registration.status !== "confirmed") {
+    patch.confirmedAt = serverTimestamp();
+  }
+  await updateDoc(doc(db, "registrations", registration.id), patch);
+
+  return { ...registration, lessonStatuses: next, status };
 }
 
-/** Admin declines a pending registration. */
-export async function declineRegistration(registration: Registration): Promise<void> {
-  if (!db) throw new Error("Firestore not initialized");
-  await updateDoc(doc(db, "registrations", registration.id), {
-    status: "declined",
-  });
+/** Apply one decision to every lesson the applicant signed up for. */
+export async function decideAllLessons(
+  registration: Registration,
+  task: Task,
+  status: RegistrationStatus,
+): Promise<Registration> {
+  const decisions: Record<string, RegistrationStatus> = {};
+  for (const id of lessonIdsFor(registration, task)) decisions[id] = status;
+  return decideRegistration(registration, task, decisions);
 }
 
-/** Admin puts an applicant on the reserve (backup) list. */
-export async function reserveRegistration(registration: Registration): Promise<void> {
-  if (!db) throw new Error("Firestore not initialized");
-  await updateDoc(doc(db, "registrations", registration.id), {
-    status: "reserve",
-  });
+function formatLessonDay(lesson: { startAt: Timestamp | Date } | undefined): string {
+  const d = lesson ? toDate(lesson.startAt) : null;
+  return d ? d.toLocaleDateString("zh-HK") : "此堂";
 }
 
 export async function cancelRegistration(registrationId: string): Promise<void> {
@@ -222,16 +272,6 @@ export async function listRegistrationsForTask(
   return snap.docs.map(
     (d) => ({ id: d.id, ...(d.data() as Omit<Registration, "id">) }),
   );
-}
-
-// ---------- Counts helper ----------
-export async function countConfirmed(
-  taskId: string,
-  position: Position,
-): Promise<number> {
-  const regs = await listRegistrationsForTask(taskId);
-  return regs.filter((r) => r.position === position && r.status === "confirmed")
-    .length;
 }
 
 // ---------- Timestamp helpers ----------

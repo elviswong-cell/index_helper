@@ -15,12 +15,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { listOpenTasks, toDate } from "@/lib/db";
 import {
-  formatDate,
+  formatDateRange,
   formatTimeRange,
   formatCurrency,
   durationHours,
+  roundHours,
 } from "@/lib/utils";
-import { rateFor, rateUnitFor, RATE_UNIT_LABEL, type Task } from "@/lib/types";
+import {
+  lessonsOf,
+  rateFor,
+  rateUnitFor,
+  RATE_UNIT_LABEL,
+  type Task,
+} from "@/lib/types";
 import { useLang } from "@/lib/i18n";
 
 export default function HomePage() {
@@ -88,9 +95,16 @@ export default function HomePage() {
 
 function TaskCard({ task }: { task: Task }) {
   const { t } = useLang();
-  const start = toDate(task.startAt);
-  const end = toDate(task.endAt);
-  const hours = durationHours(start, end);
+  const lessons = lessonsOf(task);
+  const multi = lessons.length > 1;
+  const start = toDate(lessons[0].startAt);
+  const end = toDate(lessons[lessons.length - 1].endAt);
+  const hours = roundHours(
+    lessons.reduce(
+      (sum, l) => sum + durationHours(toDate(l.startAt), toDate(l.endAt)),
+      0,
+    ),
+  );
 
   return (
     <Card className="flex flex-col">
@@ -106,11 +120,13 @@ function TaskCard({ task }: { task: Task }) {
         <CardDescription className="space-y-1.5 pt-2">
           <span className="flex items-center gap-2 text-xs">
             <Calendar className="h-3.5 w-3.5 shrink-0" />
-            {formatDate(start)}
+            {formatDateRange(start, end)}
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            {formatTimeRange(start, end)} ({hours} {t("hours_suffix")})
+            {multi
+              ? `${lessons.length} ${t("lessons_count_suffix")} · ${hours} ${t("hours_suffix")} ${t("total_suffix")}`
+              : `${formatTimeRange(start, end)} (${hours} ${t("hours_suffix")})`}
           </span>
           {task.address && (
             <span className="flex items-start gap-2 text-xs">
@@ -126,7 +142,9 @@ function TaskCard({ task }: { task: Task }) {
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5 shrink-0" />
-            MT {task.positions.mt} {t("slots_suffix")} · TA {task.positions.ta} {t("slots_suffix")}
+            MT {task.positions.mt} {t("slots_suffix")} · TA {task.positions.ta}{" "}
+            {t("slots_suffix")}
+            {multi && ` (${t("per_lesson")})`}
           </span>
         </CardDescription>
       </CardHeader>

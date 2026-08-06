@@ -14,7 +14,12 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import { createTask } from "@/lib/db";
-import { TaskForm, emptyTaskForm, type TaskFormValues } from "@/components/task-form";
+import {
+  TaskForm,
+  emptyTaskForm,
+  lessonsFromForm,
+  type TaskFormValues,
+} from "@/components/task-form";
 import { useLang } from "@/lib/i18n";
 
 export default function NewTaskPage() {
@@ -28,8 +33,7 @@ export default function NewTaskPage() {
       toast("error", t("need_admin_permission"));
       return;
     }
-    const start = new Date(`${values.date}T${values.startTime}:00`);
-    const end = new Date(`${values.date}T${values.endTime}:00`);
+    const { lessons, startAt, endAt } = lessonsFromForm(values);
     const deadline =
       values.deadlineDate && values.deadlineTime
         ? new Date(`${values.deadlineDate}T${values.deadlineTime}:00`)
@@ -43,8 +47,9 @@ export default function NewTaskPage() {
       const id = await createTask(
         {
           schoolName: values.schoolName,
-          startAt: start as unknown as Date,
-          endAt: end as unknown as Date,
+          startAt,
+          endAt,
+          lessons,
           positions: { mt: values.mt, ta: values.ta },
           rates: { mt: values.mtRate, ta: values.taRate },
           rateUnit: values.rateUnit,

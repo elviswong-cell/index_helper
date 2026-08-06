@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -9,9 +9,12 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
+  Loader2,
   Mail,
+  MapPin,
   Pencil,
   Phone,
+  Send,
   Users,
   UserX,
   XCircle,
@@ -31,24 +34,40 @@ import {
   getTask,
   listRegistrationsForTask,
   cancelRegistration,
-  confirmRegistration,
-  declineRegistration,
-  reserveRegistration,
+  decideRegistration,
   cancelTask,
   reopenTask,
   toDate,
 } from "@/lib/db";
 import { sendStatusEmail } from "@/lib/mail";
-import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
 import {
+  formatDateRange,
+  formatDateShort,
+  formatTimeRange,
+  formatCurrency,
+  durationHours,
+  roundHours,
+} from "@/lib/utils";
+import {
+  POSITIONS,
   RATE_UNIT_LABEL,
+  aggregateStatus,
+  confirmedFor,
+  countsByLesson,
+  lessonStatusMap,
+  lessonsFor,
+  lessonsOf,
   rateFor,
   rateUnitFor,
+  type Lesson,
+  type Position,
   type Task,
   type Registration,
   type RegistrationStatus,
 } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
+
+const DECISIONS: RegistrationStatus[] = ["confirmed", "reserve", "declined"];
 
 export default function AdminTaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -64,12 +83,9 @@ export default function AdminTaskDetailPage() {
     if (!id) return;
     setLoading(true);
     try {
-      const t = await getTask(id);
-      setTask(t);
-      if (t) {
-        const r = await listRegistrationsForTask(t.id);
-        setRegs(r);
-      }
+      const fetched = await getTask(id);
+      setTask(fetched);
+      if (fetched) setRegs(await listRegistrationsForTask(fetched.id));
     } catch (err) {
       console.error(err);
       toast("error", t("load_failed_generic"));
@@ -83,64 +99,39 @@ export default function AdminTaskDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function handleConfirm(reg: Registration) {
+  /** Save the admin's per-lesson decisions, then (optionally) email the applicant. */
+  async function handleSave(
+    reg: Registration,
+    decisions: Record<string, RegistrationStatus>,
+    notify: boolean,
+  ) {
     if (!task) return;
     setBusy(true);
     try {
-      await confirmRegistration(reg, task);
-      toast("success", `${t("confirmed_toast")}: ${reg.userName}`);
+      const updated = await decideRegistration(reg, task, decisions);
+      toast("success", `${t("decisions_saved")}: ${reg.userName}`);
       await refresh();
-      try {
-        await sendStatusEmail(reg, task.schoolName, "confirmed");
-      } catch (mailErr) {
-        console.error(mailErr);
-        toast("error", t("email_failed_toast"));
+      if (notify) {
+        const emailStatus =
+          updated.status === "pending" ? null : (updated.status as
+            | "confirmed"
+            | "declined"
+            | "reserve");
+        if (!emailStatus) {
+          toast("error", t("email_skipped_pending"));
+        } else {
+          try {
+            await sendStatusEmail(updated, task, emailStatus);
+            toast("success", t("email_sent"));
+          } catch (mailErr) {
+            console.error(mailErr);
+            toast("error", t("email_failed_toast"));
+          }
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("confirm_failed");
       toast("error", msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDecline(reg: Registration) {
-    if (!task) return;
-    setBusy(true);
-    try {
-      await declineRegistration(reg);
-      toast("success", `${t("declined_toast")}: ${reg.userName}`);
-      await refresh();
-      try {
-        await sendStatusEmail(reg, task.schoolName, "declined");
-      } catch (mailErr) {
-        console.error(mailErr);
-        toast("error", t("email_failed_toast"));
-      }
-    } catch (err) {
-      console.error(err);
-      toast("error", t("decline_failed"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleReserve(reg: Registration) {
-    if (!task) return;
-    setBusy(true);
-    try {
-      await reserveRegistration(reg);
-      toast("success", `${t("reserved_toast")}: ${reg.userName}`);
-      await refresh();
-      try {
-        await sendStatusEmail(reg, task.schoolName, "reserve");
-      } catch (mailErr) {
-        console.error(mailErr);
-        toast("error", t("email_failed_toast"));
-      }
-    } catch (err) {
-      console.error(err);
-      toast("error", t("reserve_failed"));
     } finally {
       setBusy(false);
     }
@@ -196,12 +187,18 @@ export default function AdminTaskDetailPage() {
     );
   }
 
-  const start = toDate(task.startAt);
-  const end = toDate(task.endAt);
-  const hours = durationHours(start, end);
-  const confirmedMt = regs.filter((r) => r.position === "mt" && r.status === "confirmed").length;
-  const confirmedTa = regs.filter((r) => r.position === "ta" && r.status === "confirmed").length;
+  const lessons = lessonsOf(task);
+  const multi = lessons.length > 1;
+  const courseStart = toDate(lessons[0].startAt);
+  const courseEnd = toDate(lessons[lessons.length - 1].endAt);
+  const totalHours = roundHours(
+    lessons.reduce(
+      (sum, l) => sum + durationHours(toDate(l.startAt), toDate(l.endAt)),
+      0,
+    ),
+  );
   const unit = rateUnitFor(task);
+  const counts = countsByLesson(task, regs);
 
   const statusOrder: Record<RegistrationStatus, number> = {
     pending: 0,
@@ -209,21 +206,13 @@ export default function AdminTaskDetailPage() {
     confirmed: 2,
     declined: 3,
   };
-  const sortedRegs = [...regs].sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
-
-  const statusBadgeVariant = (s: RegistrationStatus) =>
-    s === "confirmed" ? "success" : s === "declined" ? "destructive" : "warning";
-  const statusLabelKey = (s: RegistrationStatus) =>
-    s === "confirmed"
-      ? "status_confirmed"
-      : s === "declined"
-        ? "status_declined"
-        : s === "reserve"
-          ? "status_reserve"
-          : "status_pending";
+  const sortedRegs = [...regs].sort(
+    (a, b) => statusOrder[a.status] - statusOrder[b.status],
+  );
+  const pendingCount = regs.filter((r) => r.status === "pending").length;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-5xl">
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href="/admin">
           <ArrowLeft className="h-4 w-4" />
@@ -254,6 +243,9 @@ export default function AdminTaskDetailPage() {
                         : "status_closed",
                   )}
                 </Badge>
+                <Badge variant="muted">
+                  {lessons.length} {t("lessons_count_suffix")}
+                </Badge>
               </div>
             </div>
             <div className="flex gap-2">
@@ -275,39 +267,30 @@ export default function AdminTaskDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div className="flex items-start gap-3">
-              <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-xs text-muted-foreground">{t("label_date")}</p>
-                <p className="font-medium">{formatDate(start)}</p>
+            <Field icon={<Calendar className="h-4 w-4" />} label={t("label_date")}>
+              {formatDateRange(courseStart, courseEnd)}
+            </Field>
+            <Field icon={<Clock className="h-4 w-4" />} label={t("label_time")}>
+              {multi
+                ? `${lessons.length} ${t("lessons_count_suffix")} · ${totalHours} ${t("hours_suffix")} ${t("total_suffix")}`
+                : `${formatTimeRange(courseStart, courseEnd)} (${totalHours} ${t("hours_suffix")})`}
+            </Field>
+            <Field icon={<DollarSign className="h-4 w-4" />} label={t("label_pay")}>
+              MT {formatCurrency(rateFor(task, "mt"))} · TA{" "}
+              {formatCurrency(rateFor(task, "ta"))}
+              {RATE_UNIT_LABEL[unit]}
+            </Field>
+            <Field icon={<Users className="h-4 w-4" />} label={t("label_slots")}>
+              MT {task.positions.mt} · TA {task.positions.ta}
+              {multi && ` (${t("per_lesson")})`}
+            </Field>
+            {task.address && (
+              <div className="md:col-span-2">
+                <Field icon={<MapPin className="h-4 w-4" />} label={t("label_address")}>
+                  {task.address}
+                </Field>
               </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-xs text-muted-foreground">{t("label_time")}</p>
-                <p className="font-medium">{formatTimeRange(start, end)} ({hours} {t("hours_suffix")})</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-xs text-muted-foreground">{t("label_pay")}</p>
-                <p className="font-medium">
-                  MT {formatCurrency(rateFor(task, "mt"))} · TA {formatCurrency(rateFor(task, "ta"))}
-                  {RATE_UNIT_LABEL[unit]}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-xs text-muted-foreground">{t("admin_confirmed_slots")}</p>
-                <p className="font-medium">
-                  MT {confirmedMt}/{task.positions.mt} · TA {confirmedTa}/{task.positions.ta}
-                </p>
-              </div>
-            </div>
+            )}
           </div>
           {task.notes && (
             <div className="mt-4 rounded-2xl border border-white/60 bg-white/50 p-3 text-sm">
@@ -318,12 +301,50 @@ export default function AdminTaskDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Registrations */}
+      {/* Roster: who is confirmed for each lesson */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("lesson_roster_title")}</CardTitle>
+          <CardDescription>{t("lesson_roster_desc")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto rounded-2xl border border-border">
+            <table className="w-full min-w-[680px] text-sm">
+              <thead>
+                <tr className="bg-white/60 text-xs text-muted-foreground">
+                  <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+                  {POSITIONS.map((pos) => (
+                    <th key={pos} className="px-3 py-2 text-left font-medium">
+                      {t(pos === "mt" ? "pos_mt" : "pos_ta")}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {lessons.map((lesson, i) => (
+                  <RosterRow
+                    key={lesson.id}
+                    task={task}
+                    regs={regs}
+                    lesson={lesson}
+                    index={i}
+                    counts={counts}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Applications */}
       <Card>
         <CardHeader>
           <CardTitle>{t("registrations_title")}</CardTitle>
           <CardDescription>
-            {regs.length} {t("applied_count")} ({confirmedMt + confirmedTa} {t("confirmed_short")})
+            {regs.length} {t("applied_count")} · {pendingCount} {t("pending_short")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -332,97 +353,340 @@ export default function AdminTaskDetailPage() {
               {t("no_applications_admin")}
             </p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {sortedRegs.map((r) => (
-                <div
+                <RegistrationRow
                   key={r.id}
-                  className={`flex items-center justify-between gap-3 rounded-2xl border p-3 flex-wrap ${
-                    r.status === "confirmed"
-                      ? "border-white/60 bg-white/50"
-                      : r.status === "declined"
-                        ? "border-destructive/20 bg-destructive/5"
-                        : "border-[hsl(var(--warning))]/30 bg-[hsl(var(--warning))]/5"
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium truncate">{r.userName}</span>
-                      <Badge variant={statusBadgeVariant(r.status)}>
-                        {t(r.position === "mt" ? "pos_mt" : "pos_ta")} · {t(statusLabelKey(r.status))}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 mt-1">
-                      <a
-                        href={`mailto:${r.userEmail}`}
-                        className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                      >
-                        <Mail className="h-3 w-3" />
-                        {r.userEmail}
-                      </a>
-                      {r.userPhone && (
-                        <a
-                          href={`tel:${r.userPhone}`}
-                          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                        >
-                          <Phone className="h-3 w-3" />
-                          {r.userPhone}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {r.status !== "confirmed" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleConfirm(r)}
-                        disabled={busy}
-                        className="text-[hsl(var(--success))] hover:text-[hsl(var(--success))] gap-1"
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        {t("confirm_btn")}
-                      </Button>
-                    )}
-                    {r.status !== "reserve" && r.status !== "confirmed" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleReserve(r)}
-                        disabled={busy}
-                        className="text-[hsl(var(--warning))] hover:text-[hsl(var(--warning))] gap-1"
-                      >
-                        <Users className="h-4 w-4" />
-                        {t("reserve_btn")}
-                      </Button>
-                    )}
-                    {r.status !== "declined" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDecline(r)}
-                        disabled={busy}
-                        className="text-destructive hover:text-destructive gap-1"
-                      >
-                        <XCircle className="h-4 w-4" />
-                        {t("decline_btn")}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRemove(r)}
-                      disabled={busy}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <UserX className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
+                  task={task}
+                  reg={r}
+                  counts={counts}
+                  busy={busy}
+                  onSave={(decisions, notify) => handleSave(r, decisions, notify)}
+                  onRemove={() => handleRemove(r)}
+                />
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function RosterRow({
+  task,
+  regs,
+  lesson,
+  index,
+  counts,
+}: {
+  task: Task;
+  regs: Registration[];
+  lesson: Lesson;
+  index: number;
+  counts: Record<string, Record<Position, number>>;
+}) {
+  const { t } = useLang();
+  const start = toDate(lesson.startAt);
+  const end = toDate(lesson.endAt);
+
+  return (
+    <tr className="border-t border-border/70 align-top">
+      <td className="px-3 py-2.5 font-medium whitespace-nowrap">
+        {lesson.title || `${t("form_lesson")} ${index + 1}`}
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap">{formatDateShort(start)}</td>
+      <td className="px-3 py-2.5 whitespace-nowrap">{formatTimeRange(start, end)}</td>
+      {POSITIONS.map((pos) => {
+        const cap = task.positions[pos];
+        const taken = counts[lesson.id]?.[pos] ?? 0;
+        const names = confirmedFor(task, regs, lesson.id, pos).map((r) => r.userName);
+        return (
+          <td key={pos} className="px-3 py-2.5">
+            <span
+              className={`text-xs font-medium ${
+                taken >= cap ? "text-[hsl(var(--success))]" : "text-muted-foreground"
+              }`}
+            >
+              {taken} / {cap}
+            </span>
+            {names.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {names.map((n) => (
+                  <span
+                    key={n}
+                    className="rounded-md bg-[hsl(var(--success))]/10 px-1.5 py-0.5 text-[11px] text-foreground"
+                  >
+                    {n}
+                  </span>
+                ))}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+/**
+ * One application. The admin toggles a decision per lesson locally, then saves
+ * everything at once so a partial accept sends a single email.
+ */
+function RegistrationRow({
+  task,
+  reg,
+  counts,
+  busy,
+  onSave,
+  onRemove,
+}: {
+  task: Task;
+  reg: Registration;
+  counts: Record<string, Record<Position, number>>;
+  busy: boolean;
+  onSave: (
+    decisions: Record<string, RegistrationStatus>,
+    notify: boolean,
+  ) => Promise<void>;
+  onRemove: () => void;
+}) {
+  const { t } = useLang();
+  const saved = useMemo(() => lessonStatusMap(reg, task), [reg, task]);
+  const [draft, setDraft] = useState<Record<string, RegistrationStatus>>(saved);
+  const [notify, setNotify] = useState(true);
+
+  // Re-sync after a save (or an external refresh) replaces the registration.
+  useEffect(() => {
+    setDraft(saved);
+  }, [saved]);
+
+  const applied = lessonsFor(reg, task);
+  const dirty = applied.some((l) => draft[l.id] !== saved[l.id]);
+  const draftStatus = aggregateStatus(applied.map((l) => draft[l.id]));
+  const confirmedCount = applied.filter((l) => draft[l.id] === "confirmed").length;
+
+  function setAll(status: RegistrationStatus) {
+    const next: Record<string, RegistrationStatus> = { ...draft };
+    for (const l of applied) next[l.id] = status;
+    setDraft(next);
+  }
+
+  return (
+    <div
+      className={`rounded-2xl border p-3 space-y-3 ${
+        reg.status === "confirmed"
+          ? "border-white/60 bg-white/50"
+          : reg.status === "declined"
+            ? "border-destructive/20 bg-destructive/5"
+            : "border-[hsl(var(--warning))]/30 bg-[hsl(var(--warning))]/5"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium truncate">{reg.userName}</span>
+            <Badge variant={badgeVariant(reg.status)}>
+              {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} ·{" "}
+              {t(statusLabelKey(reg.status))}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {confirmedCount} / {applied.length} {t("lessons_confirmed_suffix")}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 mt-1">
+            <a
+              href={`mailto:${reg.userEmail}`}
+              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            >
+              <Mail className="h-3 w-3" />
+              {reg.userEmail}
+            </a>
+            {reg.userPhone && (
+              <a
+                href={`tel:${reg.userPhone}`}
+                className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+              >
+                <Phone className="h-3 w-3" />
+                {reg.userPhone}
+              </a>
+            )}
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRemove}
+          disabled={busy}
+          className="text-muted-foreground hover:text-destructive"
+          aria-label={t("remove_application")}
+        >
+          <UserX className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-border/70 bg-white/40">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead>
+            <tr className="text-xs text-muted-foreground">
+              <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_filled")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_decision")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {applied.map((lesson, i) => {
+              const start = toDate(lesson.startAt);
+              const end = toDate(lesson.endAt);
+              const cap = task.positions[reg.position];
+              // Exclude this applicant so the number reads "others already in".
+              const taken =
+                (counts[lesson.id]?.[reg.position] ?? 0) -
+                (saved[lesson.id] === "confirmed" ? 1 : 0);
+              return (
+                <tr key={lesson.id} className="border-t border-border/60">
+                  <td className="px-3 py-2 font-medium whitespace-nowrap">
+                    {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{formatDateShort(start)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {formatTimeRange(start, end)}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
+                    {taken} / {cap}
+                    {taken >= cap && draft[lesson.id] !== "confirmed" && (
+                      <span className="ml-1 text-destructive">({t("full")})</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-1">
+                      {DECISIONS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setDraft({ ...draft, [lesson.id]: d })}
+                          className={`press rounded-lg border px-2 py-1 text-xs font-medium transition-colors ${
+                            draft[lesson.id] === d
+                              ? decisionActiveClass(d)
+                              : "border-border bg-white/60 text-muted-foreground hover:border-primary/40"
+                          }`}
+                        >
+                          {t(statusLabelKey(d))}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAll("confirmed")}
+          className="text-[hsl(var(--success))] hover:text-[hsl(var(--success))] gap-1"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {t("confirm_all")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAll("reserve")}
+          className="text-[hsl(var(--warning))] hover:text-[hsl(var(--warning))] gap-1"
+        >
+          <Users className="h-4 w-4" />
+          {t("reserve_all")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAll("declined")}
+          className="text-destructive hover:text-destructive gap-1"
+        >
+          <XCircle className="h-4 w-4" />
+          {t("decline_all")}
+        </Button>
+
+        <div className="ml-auto flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notify}
+              onChange={(e) => setNotify(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+            />
+            {t("notify_by_email")}
+          </label>
+          <Button
+            size="sm"
+            disabled={busy || !dirty}
+            onClick={() => onSave(draft, notify)}
+            className="gap-2"
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            {dirty
+              ? `${t("save_decisions")} (${t(statusLabelKey(draftStatus))})`
+              : t("no_changes")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function decisionActiveClass(status: RegistrationStatus): string {
+  if (status === "confirmed")
+    return "border-[hsl(var(--success))] bg-[hsl(var(--success))]/10 text-[hsl(var(--success))]";
+  if (status === "declined")
+    return "border-destructive bg-destructive/10 text-destructive";
+  return "border-[hsl(var(--warning))] bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))]";
+}
+
+function badgeVariant(status: RegistrationStatus) {
+  return status === "confirmed"
+    ? "success"
+    : status === "declined"
+      ? "destructive"
+      : "warning";
+}
+
+function statusLabelKey(status: RegistrationStatus) {
+  return status === "confirmed"
+    ? "status_confirmed"
+    : status === "declined"
+      ? "status_declined"
+      : status === "reserve"
+        ? "status_reserve"
+        : "status_pending";
+}
+
+function Field({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="text-muted-foreground mt-0.5">{icon}</div>
+      <div>
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="font-medium">{children}</p>
+      </div>
     </div>
   );
 }

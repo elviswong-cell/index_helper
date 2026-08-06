@@ -144,26 +144,42 @@ git push -u origin main
 
 ## 資料模型 Data Model
 
-### Task
+### Task（課程，可以有多堂）
 ```ts
 {
   id: string
   schoolName: string        // 學校／活動名稱
-  startAt: Timestamp        // 開始時間
-  endAt: Timestamp          // 結束時間
-  positions: {              // 職位名額
-    ta: number              // TA 名額
-    mt: number              // MT 名額
+  startAt: Timestamp        // 第一堂開始時間（由 lessons 自動計算）
+  endAt: Timestamp          // 最後一堂結束時間（由 lessons 自動計算）
+  lessons: [                // 每一堂課
+    {
+      id: string            // 穩定 id，編輯時不會變
+      startAt: Timestamp
+      endAt: Timestamp
+      title?: string        // 例如「工作坊第一日」
+    }
+  ],
+  positions: {              // 每堂的職位名額
+    ta: number              // TA 名額（每堂）
+    mt: number              // MT 名額（每堂）
   },
-  hourlyRate: number        // 時薪
-  notes?: string            // 備註
+  rates?: { mt: number; ta: number }
+  rateUnit?: 'hourly' | 'daily'
+  address?: string          // 學校地址
+  mapUrl?: string
+  deadline?: Timestamp      // 報名截止
+  meetUrl?: string
+  meetAt?: Timestamp
+  notes?: string            // 備註／說明
   status: 'open' | 'closed' | 'cancelled'
   createdBy: string         // 管理員 uid
   createdAt: Timestamp
 }
 ```
 
-### Registration
+沒有 `lessons` 的舊資料仍可正常顯示：系統會用 `startAt`／`endAt` 當成單一堂課。
+
+### Registration（報名）
 ```ts
 {
   id: string
@@ -171,17 +187,40 @@ git push -u origin main
   userId: string
   userEmail: string
   userName: string
+  userPhone: string
   position: 'ta' | 'mt'
-  status: 'confirmed' | 'waitlist'
+  lessonIds: string[]                            // 報名者選擇出席的堂數
+  lessonStatuses: {                              // 管理員逐堂審批
+    [lessonId]: 'pending' | 'confirmed' | 'declined' | 'reserve'
+  }
+  status: 'pending' | 'confirmed' | 'declined' | 'reserve'  // lessonStatuses 的總結
   createdAt: Timestamp
+  confirmedAt?: Timestamp
 }
 ```
 
 ## 報名邏輯 Enrollment Logic
 
-- 用戶報名時，檢查該職位 confirmed 名額
-- 若未滿 → status = `confirmed`
-- 若已滿 → status = `waitlist`（灰色顯示）
+- 建立工作時，管理員可以加入多堂課（日期／時間／名稱）
+- 報名者在課堂表格中勾選自己可以出席的堂數，全部堂數預設勾選
+- 報名後每一堂都是 `pending`，等待管理員審批
+- 管理員可以**逐堂**選擇「確認／後備／拒絕」——即接受部分日期、拒絕其他日期，
+  一次儲存後只寄出一封通知電郵
+- 名額按**每堂**計算：確認時會檢查該堂該職位是否已滿
+- `status` 由 `lessonStatuses` 總結而成：任何一堂已確認 → `confirmed`；
+  否則仍有待審核 → `pending`；否則有後備 → `reserve`；全部拒絕 → `declined`
+
+## 通知電郵 Notification Emails
+
+管理員儲存審批後（可取消勾選「寄電郵通知」），系統會透過 Resend 寄出詳細電郵，內容包括：
+
+- 學校／活動名稱、職位、薪酬
+- 地址（附 Google 地圖連結）
+- 報名截止時間、線上會議連結
+- 每一堂的日期、時間與審批結果（確認／不需要／後備）
+- 備註／說明（如有）
+
+需要在環境變數設定 `RESEND_API_KEY`，以及可選的 `RESEND_FROM_EMAIL`。
 
 ## 授權 License
 

@@ -15,13 +15,21 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import { getTask, updateTask, toDate } from "@/lib/db";
-import { rateFor, rateUnitFor, type Task } from "@/lib/types";
-import { TaskForm, emptyTaskForm, type TaskFormValues } from "@/components/task-form";
+import { lessonsOf, rateFor, rateUnitFor, type Task } from "@/lib/types";
+import {
+  TaskForm,
+  emptyTaskForm,
+  lessonsFromForm,
+  type LessonInput,
+  type TaskFormValues,
+} from "@/components/task-form";
 import { useLang } from "@/lib/i18n";
 
+/** Local calendar date — toISOString() would shift by the UTC offset. */
 function toDateInput(d: Date | null): string {
   if (!d) return "";
-  return d.toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 function toTimeInput(d: Date | null): string {
   if (!d) return "";
@@ -55,8 +63,7 @@ export default function EditTaskPage() {
 
   async function handleUpdate(values: TaskFormValues) {
     if (!user?.isAdmin || !task) return;
-    const start = new Date(`${values.date}T${values.startTime}:00`);
-    const end = new Date(`${values.date}T${values.endTime}:00`);
+    const { lessons, startAt, endAt } = lessonsFromForm(values);
     const deadline =
       values.deadlineDate && values.deadlineTime
         ? new Date(`${values.deadlineDate}T${values.deadlineTime}:00`)
@@ -69,8 +76,9 @@ export default function EditTaskPage() {
     try {
       await updateTask(task.id, {
         schoolName: values.schoolName,
-        startAt: start as unknown as Date,
-        endAt: end as unknown as Date,
+        startAt,
+        endAt,
+        lessons,
         positions: { mt: values.mt, ta: values.ta },
         rates: { mt: values.mtRate, ta: values.taRate },
         rateUnit: values.rateUnit,
@@ -114,19 +122,23 @@ export default function EditTaskPage() {
     );
   }
 
-  const start = toDate(task.startAt);
-  const end = toDate(task.endAt);
   const deadline = toDate(task.deadline ?? null);
   const meetAt = toDate(task.meetAt ?? null);
+
+  const lessonInputs: LessonInput[] = lessonsOf(task).map((lesson) => ({
+    id: lesson.id,
+    title: lesson.title ?? "",
+    date: toDateInput(toDate(lesson.startAt)),
+    startTime: toTimeInput(toDate(lesson.startAt)),
+    endTime: toTimeInput(toDate(lesson.endAt)),
+  }));
 
   const initial: TaskFormValues = {
     ...emptyTaskForm,
     schoolName: task.schoolName,
     address: task.address ?? "",
     mapUrl: task.mapUrl ?? "",
-    date: toDateInput(start),
-    startTime: toTimeInput(start),
-    endTime: toTimeInput(end),
+    lessons: lessonInputs,
     mt: task.positions.mt,
     ta: task.positions.ta,
     mtRate: rateFor(task, "mt"),

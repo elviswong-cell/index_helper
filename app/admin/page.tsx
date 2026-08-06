@@ -27,8 +27,14 @@ import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import { listAllTasks, cancelTask, reopenTask, deleteTask } from "@/lib/db";
 import { toDate } from "@/lib/db";
-import { formatDate, formatTimeRange, formatCurrency, durationHours } from "@/lib/utils";
-import { RATE_UNIT_LABEL, rateFor, rateUnitFor } from "@/lib/types";
+import {
+  formatDateRange,
+  formatTimeRange,
+  formatCurrency,
+  durationHours,
+  roundHours,
+} from "@/lib/utils";
+import { RATE_UNIT_LABEL, lessonsOf, rateFor, rateUnitFor } from "@/lib/types";
 import type { Task } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
 
@@ -158,9 +164,16 @@ function AdminTaskCard({
   onAction: (action: "cancel" | "reopen" | "delete") => Promise<void>;
 }) {
   const { t } = useLang();
-  const start = toDate(task.startAt);
-  const end = toDate(task.endAt);
-  const hours = durationHours(start, end);
+  const lessons = lessonsOf(task);
+  const multi = lessons.length > 1;
+  const start = toDate(lessons[0].startAt);
+  const end = toDate(lessons[lessons.length - 1].endAt);
+  const hours = roundHours(
+    lessons.reduce(
+      (sum, l) => sum + durationHours(toDate(l.startAt), toDate(l.endAt)),
+      0,
+    ),
+  );
 
   return (
     <Card className="flex flex-col">
@@ -190,11 +203,13 @@ function AdminTaskCard({
         <CardDescription className="space-y-1.5 pt-2">
           <div className="flex items-center gap-2 text-xs">
             <Calendar className="h-3.5 w-3.5" />
-            {formatDate(start)}
+            {formatDateRange(start, end)}
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Clock className="h-3.5 w-3.5" />
-            {formatTimeRange(start, end)} ({hours} {t("hours_suffix")})
+            {multi
+              ? `${lessons.length} ${t("lessons_count_suffix")} · ${hours} ${t("hours_suffix")} ${t("total_suffix")}`
+              : `${formatTimeRange(start, end)} (${hours} ${t("hours_suffix")})`}
           </div>
           <div className="flex items-center gap-2 text-xs">
             <DollarSign className="h-3.5 w-3.5" />

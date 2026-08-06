@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Briefcase,
   Calendar,
+  CalendarDays,
   CheckCircle2,
   Clock,
   DollarSign,
@@ -27,7 +28,6 @@ import { useToast } from "@/components/toaster-context";
 import {
   getTask,
   registerForTask,
-  countConfirmed,
   listRegistrationsForTask,
   cancelRegistration,
   getUserProfile,
@@ -35,20 +35,30 @@ import {
 } from "@/lib/db";
 import {
   formatDate,
+  formatDateRange,
+  formatDateShort,
   formatTimeRange,
   formatCurrency,
   durationHours,
+  roundHours,
 } from "@/lib/utils";
 import {
   POSITIONS,
   RATE_UNIT_LABEL,
+  countsByLesson,
+  lessonIdsFor,
+  lessonStatusFor,
+  lessonsOf,
   rateFor,
   rateUnitFor,
   type Position,
+  type RegistrationStatus,
   type Task,
   type Registration,
 } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
+
+type LessonCounts = Record<string, Record<Position, number>>;
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -56,9 +66,10 @@ export default function TaskDetailPage() {
   const { toast } = useToast();
   const { t } = useLang();
   const [task, setTask] = useState<Task | null>(null);
-  const [counts, setCounts] = useState<Record<Position, number>>({ mt: 0, ta: 0 });
+  const [counts, setCounts] = useState<LessonCounts>({});
   const [myReg, setMyReg] = useState<Registration | null>(null);
   const [position, setPosition] = useState<Position>("mt");
+  const [selected, setSelected] = useState<string[]>([]);
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -67,16 +78,14 @@ export default function TaskDetailPage() {
     if (!id) return;
     setLoading(true);
     try {
-      const t = await getTask(id);
-      setTask(t);
-      if (t) {
-        const [mt, ta] = await Promise.all([
-          countConfirmed(t.id, "mt"),
-          countConfirmed(t.id, "ta"),
-        ]);
-        setCounts({ mt, ta });
+      const fetched = await getTask(id);
+      setTask(fetched);
+      if (fetched) {
+        const regs = await listRegistrationsForTask(fetched.id);
+        setCounts(countsByLesson(fetched, regs));
+        // Default to signing up for every lesson.
+        setSelected(lessonsOf(fetched).map((l) => l.id));
         if (user) {
-          const regs = await listRegistrationsForTask(t.id);
           setMyReg(regs.find((r) => r.userId === user.uid) ?? null);
           const profile = await getUserProfile(user.uid);
           setPhone(profile?.phone ?? "");
@@ -104,6 +113,10 @@ export default function TaskDetailPage() {
       toast("error", t("phone_required_toast"));
       return;
     }
+    if (selected.length === 0) {
+      toast("error", t("select_lesson_required"));
+      return;
+    }
     setSubmitting(true);
     try {
       await registerForTask({
@@ -113,6 +126,7 @@ export default function TaskDetailPage() {
         userName: user.displayName ?? user.email ?? t("anonymous"),
         userPhone: phone,
         position,
+        lessonIds: selected,
       });
       toast("success", t("app_submitted"));
       await refresh();
@@ -152,14 +166,29 @@ export default function TaskDetailPage() {
     );
   }
 
-  const start = toDate(task.startAt);
-  const end = toDate(task.endAt);
-  const hours = durationHours(start, end);
+  const lessons = lessonsOf(task);
+  const multi = lessons.length > 1;
+  const courseStart = toDate(lessons[0].startAt);
+  const courseEnd = toDate(lessons[lessons.length - 1].endAt);
+  const totalHours = roundHours(
+    lessons.reduce(
+      (sum, l) => sum + durationHours(toDate(l.startAt), toDate(l.endAt)),
+      0,
+    ),
+  );
   const deadline = toDate(task.deadline ?? null);
   const meetAt = toDate(task.meetAt ?? null);
   const isOpen = task.status === "open";
   const pastDeadline = !!deadline && new Date() > deadline;
   const unit = rateUnitFor(task);
+
+  function toggleLesson(lessonId: string) {
+    setSelected((prev) =>
+      prev.includes(lessonId)
+        ? prev.filter((x) => x !== lessonId)
+        : [...prev, lessonId],
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -175,31 +204,48 @@ export default function TaskDetailPage() {
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="space-y-2">
               <CardTitle className="text-xl md:text-2xl">{task.schoolName}</CardTitle>
-              <Badge
-                variant={
-                  isOpen
-                    ? "success"
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={
+                    isOpen
+                      ? "success"
+                      : task.status === "cancelled"
+                        ? "destructive"
+                        : "muted"
+                  }
+                >
+                  {isOpen
+                    ? t("status_open")
                     : task.status === "cancelled"
-                      ? "destructive"
-                      : "muted"
-                }
-              >
-                {isOpen
-                  ? t("status_open")
-                  : task.status === "cancelled"
-                    ? t("status_cancelled")
-                    : t("status_closed")}
-              </Badge>
+                      ? t("status_cancelled")
+                      : t("status_closed")}
+                </Badge>
+                {multi && (
+                  <Badge variant="muted">
+                    {lessons.length} {t("lessons_count_suffix")}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <InfoRow icon={<Calendar className="h-4 w-4" />} label={t("label_date")}>
-              {formatDate(start)}
+              {formatDateRange(courseStart, courseEnd)}
             </InfoRow>
             <InfoRow icon={<Clock className="h-4 w-4" />} label={t("label_time")}>
-              {formatTimeRange(start, end)} ({hours} {t("hours_suffix")})
+              {multi ? (
+                <>
+                  {lessons.length} {t("lessons_count_suffix")} · {totalHours}{" "}
+                  {t("hours_suffix")} {t("total_suffix")}
+                </>
+              ) : (
+                <>
+                  {formatTimeRange(courseStart, courseEnd)} ({totalHours}{" "}
+                  {t("hours_suffix")})
+                </>
+              )}
             </InfoRow>
             <InfoRow icon={<DollarSign className="h-4 w-4" />} label={t("label_pay")}>
               MT {formatCurrency(rateFor(task, "mt"))} · TA{" "}
@@ -207,7 +253,8 @@ export default function TaskDetailPage() {
               {RATE_UNIT_LABEL[unit]}
             </InfoRow>
             <InfoRow icon={<Users className="h-4 w-4" />} label={t("label_slots")}>
-              MT {counts.mt}/{task.positions.mt} · TA {counts.ta}/{task.positions.ta}
+              MT {task.positions.mt} · TA {task.positions.ta}
+              {multi && ` (${t("per_lesson")})`}
             </InfoRow>
             {task.address && (
               <div className="md:col-span-2">
@@ -230,7 +277,11 @@ export default function TaskDetailPage() {
             {deadline && (
               <InfoRow icon={<Hourglass className="h-4 w-4" />} label={t("label_deadline")}>
                 <span className={pastDeadline ? "text-destructive" : undefined}>
-                  {formatDate(deadline)} {deadline.toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit" })}
+                  {formatDate(deadline)}{" "}
+                  {deadline.toLocaleTimeString("zh-HK", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                   {pastDeadline && t("deadline_closed_paren")}
                 </span>
               </InfoRow>
@@ -248,7 +299,11 @@ export default function TaskDetailPage() {
                 </a>
                 {meetAt && (
                   <span className="block text-xs text-muted-foreground mt-0.5">
-                    {formatDate(meetAt)} {meetAt.toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit" })}
+                    {formatDate(meetAt)}{" "}
+                    {meetAt.toLocaleTimeString("zh-HK", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </span>
                 )}
               </InfoRow>
@@ -265,7 +320,7 @@ export default function TaskDetailPage() {
           {isOpen && (
             <div className="border-t border-white/60 pt-6 space-y-4">
               {myReg ? (
-                <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-3">
+                <div className="rounded-2xl border border-white/60 bg-white/50 p-4 space-y-4">
                   <div className="flex items-center gap-2">
                     <CheckCircle2
                       className={`h-5 w-5 ${
@@ -277,27 +332,25 @@ export default function TaskDetailPage() {
                       }`}
                     />
                     <span className="font-medium">
-                      {t("already_applied")} {t(myReg.position === "mt" ? "pos_mt" : "pos_ta")} —{" "}
-                      {t(
-                        myReg.status === "confirmed"
-                          ? "status_confirmed"
-                          : myReg.status === "declined"
-                            ? "status_declined"
-                            : myReg.status === "reserve"
-                              ? "status_reserve"
-                              : "status_pending",
-                      )}
+                      {t("already_applied")}{" "}
+                      {t(myReg.position === "mt" ? "pos_mt" : "pos_ta")} —{" "}
+                      {t(statusKey(myReg.status))}
                     </span>
                   </div>
-                  <Button variant="outline" onClick={handleCancel} className="w-full sm:w-auto">
+
+                  <MyLessonsTable task={task} reg={myReg} />
+
+                  <Button
+                    variant="outline"
+                    onClick={handleCancel}
+                    className="w-full sm:w-auto"
+                  >
                     {t("cancel_application")}
                   </Button>
                 </div>
               ) : !user ? (
                 <div className="rounded-2xl border border-white/60 bg-white/50 p-4 text-center space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    {t("please_sign_in")}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{t("please_sign_in")}</p>
                   <Button onClick={() => signInWithGoogle()}>{t("google_login")}</Button>
                 </div>
               ) : pastDeadline ? (
@@ -310,9 +363,7 @@ export default function TaskDetailPage() {
                     <Phone className="h-5 w-5 shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
                     <div>
                       <p className="font-medium text-sm">{t("no_phone_title")}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {t("no_phone_desc")}
-                      </p>
+                      <p className="text-sm text-muted-foreground">{t("no_phone_desc")}</p>
                     </div>
                   </div>
                   <Button asChild>
@@ -320,7 +371,7 @@ export default function TaskDetailPage() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <div className="space-y-2">
                     <Label>{t("select_position")}</Label>
                     <div className="grid grid-cols-2 gap-3">
@@ -330,7 +381,6 @@ export default function TaskDetailPage() {
                           label={t(pos === "mt" ? "pos_mt" : "pos_ta")}
                           rate={rateFor(task, pos)}
                           unit={unit}
-                          current={counts[pos]}
                           total={task.positions[pos]}
                           selected={position === pos}
                           onSelect={() => setPosition(pos)}
@@ -338,6 +388,16 @@ export default function TaskDetailPage() {
                       ))}
                     </div>
                   </div>
+
+                  <LessonPicker
+                    task={task}
+                    counts={counts}
+                    position={position}
+                    selected={selected}
+                    onToggle={toggleLesson}
+                    onSelectAll={() => setSelected(lessons.map((l) => l.id))}
+                    onClearAll={() => setSelected([])}
+                  />
 
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Phone className="h-4 w-4" />
@@ -349,7 +409,7 @@ export default function TaskDetailPage() {
 
                   <Button
                     onClick={handleRegister}
-                    disabled={submitting}
+                    disabled={submitting || selected.length === 0}
                     className="w-full sm:w-auto"
                   >
                     {submitting ? (
@@ -358,18 +418,182 @@ export default function TaskDetailPage() {
                         {t("submitting")}
                       </>
                     ) : (
-                      t("submit_application")
+                      `${t("submit_application")} (${selected.length} ${t("lessons_count_suffix")})`
                     )}
                   </Button>
-                  <p className="text-xs text-muted-foreground">
-                    {t("submit_note")}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t("submit_note")}</p>
                 </div>
               )}
             </div>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function statusKey(status: RegistrationStatus) {
+  return status === "confirmed"
+    ? "status_confirmed"
+    : status === "declined"
+      ? "status_declined"
+      : status === "reserve"
+        ? "status_reserve"
+        : "status_pending";
+}
+
+function statusVariant(status: RegistrationStatus) {
+  return status === "confirmed"
+    ? "success"
+    : status === "declined"
+      ? "destructive"
+      : "warning";
+}
+
+/** The lesson table an applicant ticks before submitting. */
+function LessonPicker({
+  task,
+  counts,
+  position,
+  selected,
+  onToggle,
+  onSelectAll,
+  onClearAll,
+}: {
+  task: Task;
+  counts: LessonCounts;
+  position: Position;
+  selected: string[];
+  onToggle: (lessonId: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+}) {
+  const { t } = useLang();
+  const lessons = lessonsOf(task);
+  const cap = task.positions[position];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <Label>{t("select_lessons")}</Label>
+          <p className="text-xs text-muted-foreground mt-1">{t("select_lessons_hint")}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onSelectAll}>
+            {t("select_all")}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={onClearAll}>
+            {t("clear_all")}
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-border">
+        <table className="w-full min-w-[520px] text-sm">
+          <thead>
+            <tr className="bg-white/60 text-xs text-muted-foreground">
+              <th className="px-3 py-2 w-10" />
+              <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_slots_left")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lessons.map((lesson, i) => {
+              const start = toDate(lesson.startAt);
+              const end = toDate(lesson.endAt);
+              const taken = counts[lesson.id]?.[position] ?? 0;
+              const left = Math.max(0, cap - taken);
+              const isSelected = selected.includes(lesson.id);
+              return (
+                <tr
+                  key={lesson.id}
+                  onClick={() => onToggle(lesson.id)}
+                  className={`border-t border-border/70 cursor-pointer transition-colors ${
+                    isSelected ? "bg-primary/5" : "hover:bg-white/40"
+                  }`}
+                >
+                  <td className="px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => onToggle(lesson.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-4 w-4 accent-[hsl(var(--primary))] cursor-pointer"
+                      aria-label={lesson.title || `${t("form_lesson")} ${i + 1}`}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5 font-medium">
+                    {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                  </td>
+                  <td className="px-3 py-2.5">{formatDateShort(start)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    {formatTimeRange(start, end)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {left === 0 ? (
+                      <Badge variant="muted" className="text-[10px]">
+                        {t("full")}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {left} / {cap}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">{t("full_still_apply_hint")}</p>
+    </div>
+  );
+}
+
+/** Per-lesson result table shown after the admin has reviewed. */
+function MyLessonsTable({ task, reg }: { task: Task; reg: Registration }) {
+  const { t } = useLang();
+  const ids = lessonIdsFor(reg, task);
+  const lessons = lessonsOf(task).filter((l) => ids.includes(l.id));
+  if (lessons.length === 0) return null;
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-border">
+      <table className="w-full min-w-[460px] text-sm">
+        <thead>
+          <tr className="bg-white/60 text-xs text-muted-foreground">
+            <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
+            <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
+            <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+            <th className="px-3 py-2 text-left font-medium">{t("th_status")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lessons.map((lesson, i) => {
+            const start = toDate(lesson.startAt);
+            const end = toDate(lesson.endAt);
+            const st = lessonStatusFor(reg, lesson.id);
+            return (
+              <tr key={lesson.id} className="border-t border-border/70">
+                <td className="px-3 py-2.5 font-medium">
+                  {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                </td>
+                <td className="px-3 py-2.5">{formatDateShort(start)}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap">
+                  {formatTimeRange(start, end)}
+                </td>
+                <td className="px-3 py-2.5">
+                  <Badge variant={statusVariant(st)}>{t(statusKey(st))}</Badge>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -398,7 +622,6 @@ function PositionOption({
   label,
   rate,
   unit,
-  current,
   total,
   selected,
   onSelect,
@@ -406,13 +629,11 @@ function PositionOption({
   label: string;
   rate: number;
   unit: "hourly" | "daily";
-  current: number;
   total: number;
   selected: boolean;
   onSelect: () => void;
 }) {
   const { t } = useLang();
-  const full = current >= total;
   return (
     <button
       type="button"
@@ -421,22 +642,18 @@ function PositionOption({
         selected
           ? "border-primary ring-1 ring-primary/40 bg-primary/5"
           : "border-border hover:border-primary/50 bg-white/50"
-      } ${full ? "opacity-70" : ""}`}
+      }`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium text-sm">{label}</span>
-        {full && (
-          <Badge variant="muted" className="text-[10px]">
-            {t("full")}
-          </Badge>
-        )}
       </div>
       <p className="text-xs text-muted-foreground mt-1">
         {formatCurrency(rate)}
         {RATE_UNIT_LABEL[unit]}
       </p>
-      <p className="text-xs text-muted-foreground">
-        {t("confirmed_of")} {current} / {total}
+      <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+        <CalendarDays className="h-3 w-3" />
+        {total} {t("slots_suffix")} {t("per_lesson")}
       </p>
     </button>
   );

@@ -45,8 +45,17 @@ NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
-NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+
+# 管理員 UID（逗號分隔）Admin UIDs, comma-separated
+NEXT_PUBLIC_ADMIN_UIDS=...
+
+# 寄信 Email（Resend）— 僅伺服器端，勿加 NEXT_PUBLIC_ 前綴
+RESEND_API_KEY=...
+RESEND_FROM_EMAIL=...
 ```
+
+`.env.local` 已被 `.gitignore` 排除，不會提交到 Git。
 
 ### 3. 設定 Firestore 安全規則 Firestore security rules
 
@@ -140,21 +149,22 @@ vercel
 
 或在 https://vercel.com 直接 import 此 repo。記得在 Vercel project settings 加入上述環境變數。
 
-## 推送到 GitHub Push to GitHub
-
-### 選項 A：我幫你建立（需要 GitHub PAT）
-
-把一個 GitHub Personal Access Token（classic, `repo` scope）傳給 Elvisbot，我會直接建立 repo 並推送。
-
-### 選項 B：自己建立
+## 開發流程 Development
 
 ```bash
-git init
-git add .
-git commit -m "Initial commit: Helper recruitment platform"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/helper-recruitment.git
-git push -u origin main
+git clone https://github.com/elviswong-cell/index_helper.git
+cd index_helper
+npm install
+cp .env.example .env.local   # 填入 Firebase / Resend 設定
+npm run dev
+```
+
+提交前建議先跑：
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm run lint        # next lint
+npm run build       # 正式建置
 ```
 
 ## 專案結構 Project Structure
@@ -179,6 +189,8 @@ git push -u origin main
 │   ├── types.ts           # TypeScript 型別
 │   └── utils.ts           # 共用工具
 ├── .env.example           # 環境變數範本
+├── .eslintrc.json         # ESLint 設定（next lint）
+├── .gitignore
 ├── tailwind.config.ts
 ├── next.config.mjs
 └── package.json

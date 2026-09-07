@@ -65,6 +65,18 @@ import { useLang } from "@/lib/i18n";
 
 type LessonCounts = Record<string, Record<Position, number>>;
 
+/** Remaining slots for a given lesson + position, never negative. */
+function slotsLeft(
+  task: Task,
+  counts: LessonCounts,
+  position: Position,
+  lessonId: string,
+): number {
+  const cap = task.positions[position];
+  const taken = counts[lessonId]?.[position] ?? 0;
+  return Math.max(0, cap - taken);
+}
+
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, signInWithGoogle } = useAuth();
@@ -87,9 +99,19 @@ export default function TaskDetailPage() {
       setTask(fetched);
       if (fetched) {
         const regs = await listRegistrationsForTask(fetched.id);
-        setCounts(countsByLesson(fetched, regs));
-        // Default to signing up for every lesson.
-        setSelected(lessonsOf(fetched).map((l) => l.id));
+        const nextCounts = countsByLesson(fetched, regs);
+        setCounts(nextCounts);
+
+        const available = POSITIONS.filter((p) => fetched.positions[p] > 0);
+        const nextPosition = available.includes(position) ? position : (available[0] ?? position);
+        setPosition(nextPosition);
+
+        // Default to signing up for every lesson that still has room.
+        setSelected(
+          lessonsOf(fetched)
+            .filter((l) => slotsLeft(fetched, nextCounts, nextPosition, l.id) > 0)
+            .map((l) => l.id),
+        );
         if (user) {
           setMyReg(regs.find((r) => r.userId === user.uid) ?? null);
           setProfile(await getUserProfile(user.uid));
@@ -117,7 +139,11 @@ export default function TaskDetailPage() {
       toast("error", t("profile_required_toast"));
       return;
     }
-    if (selected.length === 0) {
+    // Slots may have filled since the page loaded — never submit a full lesson.
+    const openSelected = selected.filter(
+      (lessonId) => slotsLeft(task, counts, position, lessonId) > 0,
+    );
+    if (openSelected.length === 0) {
       toast("error", t("select_lesson_required"));
       return;
     }
@@ -130,7 +156,7 @@ export default function TaskDetailPage() {
         userName: user.displayName ?? user.email ?? t("anonymous"),
         userPhone: profile?.phone ?? "",
         position,
-        lessonIds: selected,
+        lessonIds: openSelected,
       });
       toast("success", t("app_submitted"));
       await refresh();
@@ -171,6 +197,7 @@ export default function TaskDetailPage() {
   }
 
   const lessons = lessonsOf(task);
+  const availablePositions = POSITIONS.filter((p) => task.positions[p] > 0);
   const multi = lessons.length > 1;
   const courseStart = toDate(lessons[0].startAt);
   const courseEnd = toDate(lessons[lessons.length - 1].endAt);
@@ -188,10 +215,19 @@ export default function TaskDetailPage() {
   const missing = missingProfileFields(profile);
 
   function toggleLesson(lessonId: string) {
+    if (slotsLeft(task!, counts, position, lessonId) === 0) return;
     setSelected((prev) =>
       prev.includes(lessonId)
         ? prev.filter((x) => x !== lessonId)
         : [...prev, lessonId],
+    );
+  }
+
+  function handleSelectPosition(pos: Position) {
+    setPosition(pos);
+    // Re-derive the default selection for the new position's capacity.
+    setSelected(
+      lessons.filter((l) => slotsLeft(task!, counts, pos, l.id) > 0).map((l) => l.id),
     );
   }
 
@@ -387,22 +423,24 @@ export default function TaskDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-5">
-                  <div className="space-y-2">
-                    <Label>{t("select_position")}</Label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {POSITIONS.map((pos) => (
-                        <PositionOption
-                          key={pos}
-                          label={t(pos === "mt" ? "pos_mt" : "pos_ta")}
-                          rate={rateFor(task, pos)}
-                          unit={unit}
-                          total={task.positions[pos]}
-                          selected={position === pos}
-                          onSelect={() => setPosition(pos)}
-                        />
-                      ))}
+                  {availablePositions.length > 1 && (
+                    <div className="space-y-2">
+                      <Label>{t("select_position")}</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {availablePositions.map((pos) => (
+                          <PositionOption
+                            key={pos}
+                            label={t(pos === "mt" ? "pos_mt" : "pos_ta")}
+                            rate={rateFor(task, pos)}
+                            unit={unit}
+                            total={task.positions[pos]}
+                            selected={position === pos}
+                            onSelect={() => handleSelectPosition(pos)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <LessonPicker
                     task={task}
@@ -410,7 +448,13 @@ export default function TaskDetailPage() {
                     position={position}
                     selected={selected}
                     onToggle={toggleLesson}
-                    onSelectAll={() => setSelected(lessons.map((l) => l.id))}
+                    onSelectAll={() =>
+                      setSelected(
+                        lessons
+                          .filter((l) => slotsLeft(task, counts, position, l.id) > 0)
+                          .map((l) => l.id),
+                      )
+                    }
                     onClearAll={() => setSelected([])}
                   />
 
@@ -523,22 +567,27 @@ function LessonPicker({
               const end = toDate(lesson.endAt);
               const taken = counts[lesson.id]?.[position] ?? 0;
               const left = Math.max(0, cap - taken);
+              const isFull = left === 0;
               const isSelected = selected.includes(lesson.id);
               return (
                 <tr
                   key={lesson.id}
                   onClick={() => onToggle(lesson.id)}
-                  className={`border-t border-border/70 cursor-pointer transition-colors ${
-                    isSelected ? "bg-primary/5" : "hover:bg-white/40"
+                  aria-disabled={isFull}
+                  className={`border-t border-border/70 transition-colors ${
+                    isFull
+                      ? "cursor-not-allowed opacity-50"
+                      : `cursor-pointer ${isSelected ? "bg-primary/5" : "hover:bg-white/40"}`
                   }`}
                 >
                   <td className="px-3 py-2.5">
                     <input
                       type="checkbox"
                       checked={isSelected}
+                      disabled={isFull}
                       onChange={() => onToggle(lesson.id)}
                       onClick={(e) => e.stopPropagation()}
-                      className="h-4 w-4 accent-[hsl(var(--primary))] cursor-pointer"
+                      className="h-4 w-4 accent-[hsl(var(--primary))] cursor-pointer disabled:cursor-not-allowed"
                       aria-label={lesson.title || `${t("form_lesson")} ${i + 1}`}
                     />
                   </td>
@@ -566,7 +615,7 @@ function LessonPicker({
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-muted-foreground">{t("full_still_apply_hint")}</p>
+      <p className="text-xs text-muted-foreground">{t("full_lesson_locked_hint")}</p>
     </div>
   );
 }

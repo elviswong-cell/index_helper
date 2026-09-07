@@ -423,10 +423,14 @@ export default function TaskDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {availablePositions.length > 1 && (
+                  {availablePositions.length > 0 && (
                     <div className="space-y-2">
                       <Label>{t("select_position")}</Label>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div
+                        className={`grid gap-3 ${
+                          availablePositions.length > 1 ? "grid-cols-2" : "grid-cols-1"
+                        }`}
+                      >
                         {availablePositions.map((pos) => (
                           <PositionOption
                             key={pos}

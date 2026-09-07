@@ -442,6 +442,10 @@ export const dict: Dict = {
   removed_toast: { en: "Removed", zh: "已移除" },
   remove_failed: { en: "Remove failed", zh: "移除失敗" },
   load_failed_generic: { en: "Failed to load", zh: "載入失敗" },
+  load_failed_permission: {
+    en: "Failed to load — Firestore is rejecting this admin's read. Run scripts/set-admin.js for this UID and sign in again.",
+    zh: "載入失敗 —— Firestore 拒絕了此管理員帳戶的讀取。請對此 UID 執行 scripts/set-admin.js 並重新登入。",
+  },
 
   // Admin — job form
   create_job_title: { en: "Create new job", zh: "建立新工作" },

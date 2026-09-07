@@ -59,78 +59,47 @@ RESEND_FROM_EMAIL=...
 
 ### 3. 設定 Firestore 安全規則 Firestore security rules
 
-在 Firebase Console → Firestore → Rules：
+規則已收錄在本 repo 的 [`firestore.rules`](./firestore.rules)（Firestore）與
+[`storage.rules`](./storage.rules)（Cloud Storage，SCRC 文件），並由
+[`firebase.json`](./firebase.json) 指向它們。用 Firebase CLI 部署：
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Tasks: anyone signed in can read; only admins can write
-    match /tasks/{taskId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null && request.auth.token.admin == true;
-    }
-    // Registrations: users create/cancel their own; admins review everyone's
-    match /registrations/{regId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null &&
-        (resource.data.userId == request.auth.uid || isAdmin());
-    }
-    // Profiles: users manage their own; admins read and correct any
-    match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-      allow read, write, delete: if isAdmin();
-    }
-    // Invoices: freelancers submit and read their own; admins manage all
-    match /invoices/{invoiceId} {
-      allow read: if request.auth != null &&
-        (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if request.auth != null &&
-        request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
-    }
-    function isAdmin() {
-      return request.auth != null && request.auth.token.admin == true;
-    }
-  }
-}
+```bash
+npm i -g firebase-tools
+firebase login
+firebase deploy --only firestore:rules,storage:rules --project minds-56fa1
 ```
 
-⚠️ 上面用 `request.auth.token.admin` 作管理員判斷。應用程式本身用 `NEXT_PUBLIC_ADMIN_UIDS`
-只控制介面顯示，**並不是安全邊界** — 必須同時設定 Firebase custom claims（或把
-`isAdmin()` 改成讀 `users/{uid}.admin` 欄位），否則規則會擋住管理員的操作。
+或把兩個檔案的內容貼到 Firebase Console → Firestore / Storage → Rules。
 
-### Storage 規則 Storage rules
-
-SCRC 是敏感個人文件，只有本人與管理員可以讀取：
-
-```
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /scrc/{uid}/{file} {
-      allow read: if request.auth != null &&
-        (request.auth.uid == uid || request.auth.token.admin == true);
-      allow write: if request.auth != null && request.auth.uid == uid
-        && request.resource.size < 5 * 1024 * 1024;
-      allow delete: if request.auth != null &&
-        (request.auth.uid == uid || request.auth.token.admin == true);
-    }
-  }
-}
-```
+⚠️ 規則用 `request.auth.token.admin`（Firebase Auth custom claim）作管理員判斷。
+應用程式本身用 `NEXT_PUBLIC_ADMIN_UIDS` **只控制介面顯示，並不是安全邊界** ——
+就算某個 UID 在 `NEXT_PUBLIC_ADMIN_UIDS` 裡、能看到 `/admin/tutors` 頁面，
+Firestore 仍會擋掉它的讀取請求，直到該 UID 也有 `admin: true` 這個 custom
+claim 為止。這正是「導師資料庫」頁面顯示 **Failed to load / 0 tutors** 最常見
+的原因 —— 見下面第 4 步。
 
 ### 4. 設定管理員 Set admin
 
-在 Firebase Console → Firestore，於 `tasks` collection 加入第一筆任務時，需要設定管理員。最簡單的做法是用 Firebase Auth 的 Custom Claims：
+`NEXT_PUBLIC_ADMIN_UIDS` 只是讓對的人看到 `/admin` 選單；要讓 Firestore 規則真
+的放行，必須另外幫同一批 UID 設定 Firebase Auth custom claim。用
+[`scripts/set-admin.js`](./scripts/set-admin.js)：
 
 ```bash
-# 使用 Firebase Admin SDK 在本機執行
-node scripts/set-admin.js your-user-uid
+# 1) Firebase Console → Project settings → Service accounts →
+#    Generate new private key，下載 JSON（妥善保管，不要提交到 git）
+export FIREBASE_SERVICE_ACCOUNT_JSON="$(cat /path/to/service-account.json)"
+
+# 2) 幫 NEXT_PUBLIC_ADMIN_UIDS 裡的每個 UID 設定 admin claim
+npm run set-admin
+# 或指定特定 UID
+npm run set-admin -- your-user-uid
+
+# 撤銷：
+npm run set-admin -- --revoke your-user-uid
 ```
 
-或在 Cloud Functions 中設定。或者改用簡單方式：在 `users/{uid}` document 加入 `{ "admin": true }`，並把 rule 改為 `request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.admin == true`。
+跑完之後，該使用者必須**登出再重新登入**（custom claim 只在簽發新的 ID token
+時才會生效，不會馬上套用到已登入的 session）。
 
 ### 5. 啟動開發伺服器 Start dev server
 
@@ -320,6 +289,9 @@ bundle 增加數 MB，而瀏覽器本身已有中文字型，繪製後輸出既�
 - 每位導師顯示 SCRC 連結、銀行資料、已確認堂數、已完成金額
 - 點入可查看逐堂紀錄與 Invoice 紀錄，並可修改或刪除帳戶資料
   （刪除只清除個人資料與 SCRC，上堂與 Invoice 紀錄保留）
+
+看到 **Failed to load / 0 tutors** 但確定自己是管理員？代表 Firestore 規則還
+不放行你的 UID —— 見上面「[設定管理員 Set admin](#4-設定管理員-set-admin)」。
 
 ## 授權 License
 

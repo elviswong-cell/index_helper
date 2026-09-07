@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Tasks: anyone signed in can read; only admins can write
+    match /tasks/{taskId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Registrations: users create/cancel their own; admins review everyone's
+    match /registrations/{regId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Profiles: users manage their own; admins read and correct any.
+    // Every tutor's phone, SCRC link and bank details live here — this is
+    // what /admin/tutors reads, so isAdmin() must match how the app itself
+    // decides who is an admin (see scripts/set-admin.js).
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write, delete: if isAdmin();
+    }
+
+    // Invoices: freelancers submit and read their own; admins manage all
+    match /invoices/{invoiceId} {
+      allow read: if request.auth != null &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+  }
+}

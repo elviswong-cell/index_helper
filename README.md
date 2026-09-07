@@ -66,10 +66,15 @@ RESEND_FROM_EMAIL=...
 ```bash
 npm i -g firebase-tools
 firebase login
-firebase deploy --only firestore:rules,storage:rules --project minds-56fa1
+firebase deploy --only firestore:rules,storage --project minds-56fa1
 ```
 
 或把兩個檔案的內容貼到 Firebase Console → Firestore / Storage → Rules。
+
+注意 `--only` 的寫法：Firestore 有 `firestore:rules` 這個子分類，但 Storage 沒有
+—— `storage:xxx` 的 `xxx` 是 deploy target 名稱，所以寫成 `storage:rules` 會出現
+`Could not find rules for the following storage targets: rules`。Storage 直接寫
+`storage` 就好（它本來就只部署規則）。
 
 ⚠️ 規則用 `request.auth.token.admin`（Firebase Auth custom claim）作管理員判斷。
 應用程式本身用 `NEXT_PUBLIC_ADMIN_UIDS` **只控制介面顯示，並不是安全邊界** ——

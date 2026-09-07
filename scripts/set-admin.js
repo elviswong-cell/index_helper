@@ -42,8 +42,27 @@ function loadEnvLocal() {
   return out;
 }
 
+/**
+ * firebase-admin is a devDependency of the root package, so a fresh clone (or
+ * a pull that added it) needs `npm install` before this script can run. Node's
+ * own MODULE_NOT_FOUND text doesn't say that, so translate it.
+ */
+function requireAdmin(mod) {
+  try {
+    return require(mod);
+  } catch (err) {
+    if (err && err.code === "MODULE_NOT_FOUND" && String(err.message).includes("firebase-admin")) {
+      throw new Error(
+        "firebase-admin is not installed. Run `npm install` in the project root, " +
+          "then try again.",
+      );
+    }
+    throw err;
+  }
+}
+
 function loadApp() {
-  const { cert, getApps, initializeApp } = require("firebase-admin/app");
+  const { cert, getApps, initializeApp } = requireAdmin("firebase-admin/app");
   if (getApps().length > 0) return getApps()[0];
 
   const inline = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -147,7 +166,7 @@ async function main() {
   }
 
   loadApp();
-  const { getAuth } = require("firebase-admin/auth");
+  const { getAuth } = requireAdmin("firebase-admin/auth");
   const auth = getAuth();
 
   if (check) {

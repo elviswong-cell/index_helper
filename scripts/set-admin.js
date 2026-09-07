@@ -14,6 +14,8 @@
  *   node scripts/set-admin.js <uid> [<uid2> ...]
  *   node scripts/set-admin.js                 # defaults to NEXT_PUBLIC_ADMIN_UIDS from .env.local
  *   node scripts/set-admin.js --revoke <uid>   # remove the claim instead
+ *   node scripts/set-admin.js --check          # write nothing; list who currently holds the claim
+ *   node scripts/set-admin.js --check <uid>    # write nothing; show one UID's email and claims
  *
  * Credentials (same as mcp-server, see mcp-server/README.md), set one of:
  *   FIREBASE_SERVICE_ACCOUNT_JSON   the service-account key JSON, raw or base64
@@ -73,10 +75,59 @@ function loadApp() {
   );
 }
 
+/**
+ * Read-only: print who holds the admin claim. With no UIDs, walks every
+ * Firebase Auth user, so you can see at a glance whether the claim landed on
+ * the account you actually sign in with.
+ */
+async function report(auth, uids) {
+  if (uids.length > 0) {
+    for (const uid of uids) {
+      const user = await auth.getUser(uid).catch(() => null);
+      if (!user) {
+        console.log(`${uid}: no such Firebase Auth user`);
+        continue;
+      }
+      const claims = user.customClaims ?? {};
+      console.log(
+        `${claims.admin === true ? "admin" : "  -  "}  ${uid}  ${user.email ?? "(no email)"}  ` +
+          `claims=${JSON.stringify(claims)}`,
+      );
+    }
+    return;
+  }
+
+  let pageToken;
+  let total = 0;
+  let admins = 0;
+  do {
+    const page = await auth.listUsers(1000, pageToken);
+    for (const user of page.users) {
+      total += 1;
+      const claims = user.customClaims ?? {};
+      if (claims.admin === true) admins += 1;
+      console.log(
+        `${claims.admin === true ? "admin" : "  -  "}  ${user.uid}  ${user.email ?? "(no email)"}  ` +
+          `claims=${JSON.stringify(claims)}`,
+      );
+    }
+    pageToken = page.pageToken;
+  } while (pageToken);
+
+  console.log(`\n${admins} of ${total} users hold the admin claim.`);
+  if (admins === 0) {
+    console.log(
+      "Nobody has it — /admin pages will fail to load for everyone until you " +
+        "run this script without --check for the right UID.",
+    );
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const revoke = args.includes("--revoke");
-  const explicitUids = args.filter((a) => a !== "--revoke");
+  const check = args.includes("--check");
+  const explicitUids = args.filter((a) => !a.startsWith("--"));
 
   const env = loadEnvLocal();
   const targets = explicitUids.length
@@ -86,7 +137,7 @@ async function main() {
         .map((s) => s.trim())
         .filter(Boolean);
 
-  if (targets.length === 0) {
+  if (targets.length === 0 && !check) {
     console.error(
       "No UIDs given and none found in NEXT_PUBLIC_ADMIN_UIDS (.env.local).\n" +
         "Usage: node scripts/set-admin.js <uid> [<uid2> ...]",
@@ -99,29 +150,59 @@ async function main() {
   const { getAuth } = require("firebase-admin/auth");
   const auth = getAuth();
 
-  let failed = false;
+  if (check) {
+    await report(auth, targets);
+    return;
+  }
+
+  let succeeded = 0;
+  let failed = 0;
   for (const uid of targets) {
     const user = await auth.getUser(uid).catch(() => null);
     if (!user) {
       console.error(`✗ ${uid}: no such Firebase Auth user`);
-      failed = true;
+      failed += 1;
       continue;
     }
     const claims = { ...(user.customClaims ?? {}) };
     if (revoke) delete claims.admin;
     else claims.admin = true;
     await auth.setCustomUserClaims(uid, claims);
+
+    // Read the user back so the output is proof of the stored state rather
+    // than an echo of what we just sent.
+    const after = await auth.getUser(uid);
+    const stored = after.customClaims ?? {};
+    const ok = revoke ? !stored.admin : stored.admin === true;
+    if (!ok) {
+      console.error(
+        `✗ ${uid}: write reported success but the stored claims are ` +
+          `${JSON.stringify(stored)}`,
+      );
+      failed += 1;
+      continue;
+    }
+    succeeded += 1;
     console.log(
       `${revoke ? "✓ revoked" : "✓ granted"} admin claim for ${uid}` +
-        (user.email ? ` (${user.email})` : ""),
+        (after.email ? ` (${after.email})` : "") +
+        ` — claims now ${JSON.stringify(stored)}`,
     );
   }
 
-  console.log(
-    "\nDone. Affected users must sign out and back in (custom claims are read " +
-      "from the ID token, which does not update until it is reissued).",
-  );
-  if (failed) process.exitCode = 1;
+  if (failed > 0) {
+    console.error(
+      `\n${failed} of ${targets.length} failed${succeeded ? `, ${succeeded} succeeded` : ""}. ` +
+        "Nothing will change for a UID listed above with ✗.",
+    );
+    process.exitCode = 1;
+  }
+  if (succeeded > 0) {
+    console.log(
+      "\nSign out and back in as each affected user — custom claims are read " +
+        "from the ID token, which does not update until it is reissued.",
+    );
+  }
 }
 
 main().catch((err) => {

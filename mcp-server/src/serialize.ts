@@ -6,6 +6,9 @@ import type { Timestamp } from "firebase-admin/firestore";
 export function toPlain<T>(value: T): T {
   if (value === null || value === undefined) return value;
   if (isTimestamp(value)) return asDate(value as unknown as Timestamp).toISOString() as unknown as T;
+  // A Date has no enumerable own properties, so without this it would fall to
+  // the object branch below and serialize as {}.
+  if (value instanceof Date) return value.toISOString() as unknown as T;
   if (Array.isArray(value)) return value.map((v) => toPlain(v)) as unknown as T;
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};

@@ -73,9 +73,9 @@ export const dict: Dict = {
   select_all: { en: "Select all", zh: "全選" },
   clear_all: { en: "Clear", zh: "清除" },
   select_lesson_required: { en: "Please select at least one lesson", zh: "請至少選擇一堂課" },
-  full_still_apply_hint: {
-    en: "Full lessons can still be applied for — you'll go on the reserve list for those dates.",
-    zh: "已額滿的堂數仍可報名，該日期會列入後備名單。",
+  full_lesson_locked_hint: {
+    en: "Full lessons can't be selected — pick a different date or position.",
+    zh: "已額滿的堂數無法選擇，請選擇其他日期或職位。",
   },
   th_lesson: { en: "Lesson", zh: "堂數" },
   th_date: { en: "Date", zh: "日期" },

@@ -76,7 +76,10 @@ export default function AdminTutorsPage() {
       setTasks(tk);
     } catch (err) {
       console.error(err);
-      toast("error", t("load_failed_generic"));
+      const isPermissionDenied =
+        typeof err === "object" && err !== null && "code" in err &&
+        (err as { code?: string }).code === "permission-denied";
+      toast("error", t(isPermissionDenied ? "load_failed_permission" : "load_failed_generic"));
     } finally {
       setFetching(false);
     }

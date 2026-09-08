@@ -15,6 +15,9 @@ export interface LessonInput {
   date: string;
   startTime: string;
   endTime: string;
+  /** Slots this lesson hires. Set one side to 0 for an MT-only or TA-only lesson. */
+  mt: number;
+  ta: number;
 }
 
 export interface TaskFormValues {
@@ -22,8 +25,6 @@ export interface TaskFormValues {
   address: string;
   mapUrl: string;
   lessons: LessonInput[];
-  mt: number;
-  ta: number;
   mtRate: number;
   taRate: number;
   rateUnit: RateUnit;
@@ -49,6 +50,8 @@ export const emptyLesson: LessonInput = {
   date: "",
   startTime: "",
   endTime: "",
+  mt: 1,
+  ta: 1,
 };
 
 export const emptyTaskForm: TaskFormValues = {
@@ -56,8 +59,6 @@ export const emptyTaskForm: TaskFormValues = {
   address: "",
   mapUrl: "",
   lessons: [emptyLesson],
-  mt: 1,
-  ta: 1,
   mtRate: 200,
   taRate: 150,
   rateUnit: "hourly",
@@ -72,18 +73,21 @@ export const emptyTaskForm: TaskFormValues = {
 /**
  * Turn the form's lesson rows into the shape stored on the task, sorted by
  * start time. `startAt`/`endAt` span the whole course so list ordering and
- * older UI keep working.
+ * older UI keep working; `positions` is the largest per-lesson capacity, which
+ * is what summaries and any reader predating per-lesson slots fall back to.
  */
 export function lessonsFromForm(values: TaskFormValues): {
   lessons: Lesson[];
   startAt: Date;
   endAt: Date;
+  positions: { mt: number; ta: number };
 } {
   const lessons = values.lessons
     .map((l) => ({
       id: l.id,
       startAt: new Date(`${l.date}T${l.startTime}:00`),
       endAt: new Date(`${l.date}T${l.endTime}:00`),
+      positions: { mt: l.mt, ta: l.ta },
       ...(l.title.trim() ? { title: l.title.trim() } : {}),
     }))
     .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
@@ -92,6 +96,10 @@ export function lessonsFromForm(values: TaskFormValues): {
     lessons,
     startAt: lessons[0].startAt,
     endAt: lessons[lessons.length - 1].endAt,
+    positions: {
+      mt: Math.max(...lessons.map((l) => l.positions.mt)),
+      ta: Math.max(...lessons.map((l) => l.positions.ta)),
+    },
   };
 }
 
@@ -128,6 +136,14 @@ export function TaskForm({
     }));
   }
 
+  /** Set the same MT (or TA) count on every lesson — the usual case. */
+  function fillColumn(key: "mt" | "ta", value: number) {
+    setValues((v) => ({
+      ...v,
+      lessons: v.lessons.map((l) => ({ ...l, [key]: value })),
+    }));
+  }
+
   function addLesson() {
     setValues((v) => {
       const last = v.lessons[v.lessons.length - 1];
@@ -139,9 +155,12 @@ export function TaskForm({
             id: newLessonId(),
             title: "",
             date: "",
-            // Same hours as the previous lesson — most courses repeat weekly.
+            // Same hours and staffing as the previous lesson — most courses
+            // repeat weekly with the same needs.
             startTime: last?.startTime ?? "",
             endTime: last?.endTime ?? "",
+            mt: last?.mt ?? 1,
+            ta: last?.ta ?? 1,
           },
         ],
       };
@@ -170,6 +189,8 @@ export function TaskForm({
             date,
             startTime: last?.startTime ?? "",
             endTime: last?.endTime ?? "",
+            mt: last?.mt ?? 1,
+            ta: last?.ta ?? 1,
           },
         ],
       };
@@ -201,6 +222,11 @@ export function TaskForm({
       const end = new Date(`${lesson.date}T${lesson.endTime}:00`);
       if (end <= start) {
         setError(`${t("form_lesson")} ${i + 1}: ${t("form_error_end_after_start")}`);
+        return;
+      }
+      // A lesson hiring nobody can never be applied for.
+      if (lesson.mt <= 0 && lesson.ta <= 0) {
+        setError(`${t("form_lesson")} ${i + 1}: ${t("form_error_no_slots")}`);
         return;
       }
     }
@@ -270,6 +296,26 @@ export function TaskForm({
                 <th className="px-3 py-2 text-left font-medium">{t("form_start_time")}</th>
                 <th className="px-3 py-2 text-left font-medium">{t("form_end_time")}</th>
                 <th className="px-3 py-2 text-left font-medium">{t("form_lesson_title")}</th>
+                <th className="px-3 py-2 text-center font-medium border-l border-border/70 w-28">
+                  <div>{t("form_mt_slots")}</div>
+                  <button
+                    type="button"
+                    onClick={() => fillColumn("mt", values.lessons[0]?.mt ?? 0)}
+                    className="mt-0.5 font-normal text-primary hover:underline"
+                  >
+                    {t("form_fill_column")}
+                  </button>
+                </th>
+                <th className="px-3 py-2 text-center font-medium border-l border-border/70 w-28">
+                  <div>{t("form_ta_slots")}</div>
+                  <button
+                    type="button"
+                    onClick={() => fillColumn("ta", values.lessons[0]?.ta ?? 0)}
+                    className="mt-0.5 font-normal text-primary hover:underline"
+                  >
+                    {t("form_fill_column")}
+                  </button>
+                </th>
                 <th className="px-3 py-2 w-10" />
               </tr>
             </thead>
@@ -306,6 +352,26 @@ export function TaskForm({
                       placeholder={t("form_lesson_title_placeholder")}
                       value={lesson.title}
                       onChange={(e) => setLesson(i, "title", e.target.value)}
+                    />
+                  </td>
+                  <td className="px-3 py-2 border-l border-border/70">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={lesson.mt}
+                      onChange={(e) => setLesson(i, "mt", Number(e.target.value))}
+                      className="text-center"
+                      aria-label={`${t("form_lesson")} ${i + 1} ${t("form_mt_slots")}`}
+                    />
+                  </td>
+                  <td className="px-3 py-2 border-l border-border/70">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={lesson.ta}
+                      onChange={(e) => setLesson(i, "ta", Number(e.target.value))}
+                      className="text-center"
+                      aria-label={`${t("form_lesson")} ${i + 1} ${t("form_ta_slots")}`}
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -374,17 +440,7 @@ export function TaskForm({
       </div>
 
       <div className="space-y-2">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="mt">{t("form_mt_slots")}</Label>
-            <Input
-              id="mt"
-              type="number"
-              min={0}
-              value={values.mt}
-              onChange={(e) => set("mt", Number(e.target.value))}
-            />
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="mtRate">
               {t(values.rateUnit === "hourly" ? "form_mt_rate_hourly" : "form_mt_rate_daily")}
@@ -396,16 +452,6 @@ export function TaskForm({
               step={10}
               value={values.mtRate}
               onChange={(e) => set("mtRate", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ta">{t("form_ta_slots")}</Label>
-            <Input
-              id="ta"
-              type="number"
-              min={0}
-              value={values.ta}
-              onChange={(e) => set("ta", Number(e.target.value))}
             />
           </div>
           <div className="space-y-2">

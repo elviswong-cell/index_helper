@@ -35,7 +35,14 @@ import {
   durationHours,
   roundHours,
 } from "@/lib/utils";
-import { RATE_UNIT_LABEL, lessonsOf, rateFor, rateUnitFor } from "@/lib/types";
+import {
+  RATE_UNIT_LABEL,
+  capacityLabel,
+  lessonsOf,
+  rateFor,
+  rateUnitFor,
+  taskSlots,
+} from "@/lib/types";
 import type { Task } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
 
@@ -231,7 +238,8 @@ function AdminTaskCard({
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5" />
-            MT {task.positions.mt} · TA {task.positions.ta}
+            MT {capacityLabel(task, "mt")} · TA {capacityLabel(task, "ta")}
+            {` · ${taskSlots(task).length} ${t("total_slots_suffix")}`}
           </div>
         </CardDescription>
       </CardHeader>

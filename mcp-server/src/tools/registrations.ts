@@ -4,13 +4,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "../firebase.js";
 import {
   aggregateStatus,
+  appliedSlots,
+  capacityFor,
   countsByLesson,
   findLesson,
   lessonIdsFor,
   lessonStatusMap,
+  slotKey,
+  slotStatusFor,
+  slotStatusMap,
 } from "../domain.js";
 import { jsonText, handleError } from "../serialize.js";
-import type { Registration, RegistrationStatus, Task } from "../types.js";
+import type { Registration, RegistrationStatus, Slot, Task } from "../types.js";
 
 const RegistrationStatusEnum = z.enum(["pending", "confirmed", "declined", "reserve"]);
 
@@ -47,9 +52,9 @@ export function registerRegistrationTools(server: McpServer): void {
       description: `List every applicant registered for one task, in application order, with per-lesson decision status.
 
 Args: task_id (required), status (optional filter by aggregate status: pending/confirmed/declined/reserve).
-Returns: {"count": number, "registrations": [{id, user_name, user_email, user_phone, position, status, lesson_statuses: {lessonId: status}, created_at}]}.
+Returns: {"count": number, "registrations": [{id, user_name, user_email, user_phone, position, status, slots: [{lesson_id, position, slot_key, status}], lesson_statuses: {lessonId: status}, created_at}]}.
 
-Use this before helper_recruitment_decide_registration to find the registration_id and see which lessons are still pending.`,
+Use this before helper_recruitment_decide_registration to find the registration_id, the slot_key of each lesson+role, and which are still pending.`,
       inputSchema: ListInputSchema.shape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -74,6 +79,12 @@ Use this before helper_recruitment_decide_registration to find the registration_
             user_phone: r.userPhone,
             position: r.position,
             status: r.status,
+            slots: appliedSlots(r, task).map((slot) => ({
+              lesson_id: slot.lessonId,
+              position: slot.position,
+              slot_key: slotKey(slot.lessonId, slot.position),
+              status: slotStatusFor(r, slot.lessonId, slot.position),
+            })),
             lesson_statuses: lessonStatusMap(r, task),
             created_at: r.createdAt,
           })),
@@ -99,7 +110,13 @@ Use this before helper_recruitment_decide_registration to find the registration_
         .record(z.string(), RegistrationStatusEnum)
         .optional()
         .describe(
-          "Map of lessonId -> status, to accept some dates and decline/reserve others. Keys must be lessons the applicant actually applied for (see helper_recruitment_list_registrations). Provide this OR status, not both.",
+          "Map of lessonId -> status, applied to EVERY role the applicant asked for on that lesson. Use per_slot_decisions to decide MT and TA separately. Provide exactly one of status / per_lesson_decisions / per_slot_decisions.",
+        ),
+      per_slot_decisions: z
+        .record(z.string(), RegistrationStatusEnum)
+        .optional()
+        .describe(
+          "Map of '<lessonId>::<position>' -> status (the slot_key returned by helper_recruitment_list_registrations), to accept a lesson as TA but not as MT. Provide exactly one of status / per_lesson_decisions / per_slot_decisions.",
         ),
     })
     .strict();
@@ -109,16 +126,20 @@ Use this before helper_recruitment_decide_registration to find the registration_
     "helper_recruitment_decide_registration",
     {
       title: "Decide Registration",
-      description: `Approve, decline, or reserve an applicant's registration — lesson by lesson, or all at once.
+      description: `Approve, decline, or reserve an applicant's registration — slot by slot (a slot is one position on one lesson), lesson by lesson, or all at once.
 
-Capacity is enforced PER LESSON PER POSITION: confirming a lesson fails if that lesson's MT/TA slots (from the task's 'positions') are already filled by other confirmed applicants. The aggregate 'status' shown on the registration is then recomputed: any confirmed lesson -> "confirmed" (possibly partial), else any pending -> "pending", else any reserve -> "reserve", else "declined".
+Applicants apply per slot: they can offer to cover 10-06 as TA and 10-12 as MT in the same job, so decisions are recorded per slot too.
+
+Capacity is enforced PER LESSON PER POSITION using that lesson's own MT/TA slots (lesson.positions, falling back to the task's 'positions'). Confirming fails if the slot is already filled by other confirmed applicants. The aggregate 'status' is then recomputed: any confirmed slot -> "confirmed" (possibly partial), else any pending -> "pending", else any reserve -> "reserve", else "declined".
 
 Args:
   - task_id, registration_id (required)
-  - status ('pending'|'confirmed'|'declined'|'reserve'): apply to every lesson the applicant applied for
-  - per_lesson_decisions ({lessonId: status}): apply different decisions per lesson — provide EXACTLY ONE of status or per_lesson_decisions
+  - status ('pending'|'confirmed'|'declined'|'reserve'): apply to every slot the applicant applied for
+  - per_lesson_decisions ({lessonId: status}): one decision per lesson, applied to every role they asked for on it
+  - per_slot_decisions ({'<lessonId>::<position>': status}): decide MT and TA separately — slot_key comes from helper_recruitment_list_registrations
+  Provide EXACTLY ONE of status / per_lesson_decisions / per_slot_decisions.
 
-Returns: the updated registration {id, status, lesson_statuses}.
+Returns: the updated registration {id, status, slot_statuses, lesson_statuses}.
 
 Note: this tool does NOT send the applicant a notification email (the app's admin UI does that as a separate step) — tell the admin to notify the applicant themselves if needed.
 
@@ -130,8 +151,15 @@ Error Handling:
     },
     async (params: DecideInput) => {
       try {
-        if ((params.status !== undefined) === (params.per_lesson_decisions !== undefined)) {
-          return handleError("Provide exactly one of 'status' or 'per_lesson_decisions'.");
+        const given = [
+          params.status,
+          params.per_lesson_decisions,
+          params.per_slot_decisions,
+        ].filter((v) => v !== undefined).length;
+        if (given !== 1) {
+          return handleError(
+            "Provide exactly one of 'status', 'per_lesson_decisions' or 'per_slot_decisions'.",
+          );
         }
         const task = await loadTask(params.task_id);
         const regSnap = await db.collection("registrations").doc(params.registration_id).get();
@@ -141,41 +169,76 @@ Error Handling:
           return handleError(`Registration ${params.registration_id} belongs to task ${registration.taskId}, not ${params.task_id}.`);
         }
 
-        const applied = lessonIdsFor(registration, task);
-        const decisions: Record<string, RegistrationStatus> =
-          params.per_lesson_decisions ?? Object.fromEntries(applied.map((id) => [id, params.status!]));
+        const applied = appliedSlots(registration, task);
 
-        const current = lessonStatusMap(registration, task);
+        // Normalize every input shape down to a slotKey -> status map.
+        const decisions: Record<string, RegistrationStatus> = {};
+        if (params.per_slot_decisions) {
+          Object.assign(decisions, params.per_slot_decisions);
+        } else if (params.per_lesson_decisions) {
+          for (const [lessonId, st] of Object.entries(params.per_lesson_decisions)) {
+            for (const slot of applied.filter((s) => s.lessonId === lessonId)) {
+              decisions[slotKey(slot.lessonId, slot.position)] = st;
+            }
+          }
+        } else {
+          for (const slot of applied) {
+            decisions[slotKey(slot.lessonId, slot.position)] = params.status!;
+          }
+        }
+
+        const current = slotStatusMap(registration, task);
         const next: Record<string, RegistrationStatus> = { ...current };
-        const newlyConfirmed: string[] = [];
-        for (const [lessonId, status] of Object.entries(decisions)) {
-          if (!applied.includes(lessonId)) continue;
-          if (current[lessonId] === status) continue;
-          next[lessonId] = status;
-          if (status === "confirmed") newlyConfirmed.push(lessonId);
+        const newlyConfirmed: Slot[] = [];
+        for (const [key, status] of Object.entries(decisions)) {
+          const slot = applied.find((s) => slotKey(s.lessonId, s.position) === key);
+          if (!slot) continue;
+          if (current[key] === status) continue;
+          next[key] = status;
+          if (status === "confirmed") newlyConfirmed.push(slot);
         }
 
         if (newlyConfirmed.length > 0) {
           const others = (await loadRegistrationsForTask(task.id)).filter((r) => r.id !== registration.id);
           const counts = countsByLesson(task, others);
-          const cap = task.positions[registration.position];
-          for (const lessonId of newlyConfirmed) {
-            const used = counts[lessonId]?.[registration.position] ?? 0;
+          for (const slot of newlyConfirmed) {
+            const cap = capacityFor(task, slot.lessonId, slot.position);
+            const used = counts[slot.lessonId]?.[slot.position] ?? 0;
             if (used >= cap) {
-              const label = findLesson(task, lessonId)?.title || formatLessonDay(findLesson(task, lessonId));
-              return handleError(`「${label}」的${registration.position.toUpperCase()}名額已滿，無法確認`);
+              const lesson = findLesson(task, slot.lessonId);
+              const label = lesson?.title || formatLessonDay(lesson);
+              return handleError(`「${label}」的${slot.position.toUpperCase()}名額已滿，無法確認`);
             }
           }
         }
 
         const status = aggregateStatus(Object.values(next));
-        const patch: Record<string, unknown> = { lessonStatuses: next, status };
+        // Mirror the decisions back onto the per-lesson shape for legacy readers.
+        const lessonStatuses: Record<string, RegistrationStatus> = {};
+        for (const lessonId of lessonIdsFor(registration, task)) {
+          lessonStatuses[lessonId] = aggregateStatus(
+            applied
+              .filter((s) => s.lessonId === lessonId)
+              .map((s) => next[slotKey(s.lessonId, s.position)]),
+          );
+        }
+
+        const patch: Record<string, unknown> = {
+          slotStatuses: next,
+          lessonStatuses,
+          status,
+        };
         if (status === "confirmed" && registration.status !== "confirmed") {
           patch.confirmedAt = FieldValue.serverTimestamp();
         }
         await db.collection("registrations").doc(registration.id).update(patch);
 
-        const output = { id: registration.id, status, lesson_statuses: next };
+        const output = {
+          id: registration.id,
+          status,
+          slot_statuses: next,
+          lesson_statuses: lessonStatuses,
+        };
         return {
           content: [{ type: "text" as const, text: jsonText(output) }],
           structuredContent: output,

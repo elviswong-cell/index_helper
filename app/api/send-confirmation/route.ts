@@ -9,6 +9,8 @@ interface LessonLine {
   label?: string;
   date?: string;
   time?: string;
+  /** "MT" or "TA" — the role this line was applied for. */
+  position?: string;
   status?: LessonStatus;
 }
 
@@ -107,8 +109,9 @@ function buildText(p: Required<Pick<Payload, "userName" | "schoolName" | "status
     lines.push("", lessons.length > 1 ? "Lessons:" : "Date & time:");
     for (const l of lessons) {
       const status = LESSON_STATUS_LABEL[l.status ?? "pending"];
+      const role = l.position ? ` (${l.position})` : "";
       lines.push(
-        `  • ${l.label ?? ""}${l.label ? " — " : ""}${l.date ?? ""}, ${l.time ?? ""}  [${status}]`,
+        `  • ${l.label ?? ""}${l.label ? " — " : ""}${l.date ?? ""}, ${l.time ?? ""}${role}  [${status}]`,
       );
     }
   }
@@ -164,6 +167,7 @@ function buildHtml(p: Required<Pick<Payload, "userName" | "schoolName" | "status
         <td style="padding:10px 12px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;white-space:nowrap;">${escapeHtml(l.label || `Lesson ${i + 1}`)}</td>
         <td style="padding:10px 12px;border-top:1px solid #e5e7eb;font-size:14px;color:#111827;">${escapeHtml(l.date ?? "")}</td>
         <td style="padding:10px 12px;border-top:1px solid #e5e7eb;font-size:14px;color:#111827;white-space:nowrap;">${escapeHtml(l.time ?? "")}</td>
+        <td style="padding:10px 12px;border-top:1px solid #e5e7eb;font-size:13px;color:#111827;white-space:nowrap;">${escapeHtml(l.position ?? "")}</td>
         <td style="padding:10px 12px;border-top:1px solid #e5e7eb;font-size:13px;font-weight:600;color:${LESSON_STATUS_COLOR[status]};white-space:nowrap;">${LESSON_STATUS_LABEL[status]}</td>
       </tr>`;
     })
@@ -179,6 +183,7 @@ function buildHtml(p: Required<Pick<Payload, "userName" | "schoolName" | "status
         <th align="left" style="padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600;">Lesson</th>
         <th align="left" style="padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600;">Date</th>
         <th align="left" style="padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600;">Time</th>
+        <th align="left" style="padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600;">Role</th>
         <th align="left" style="padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600;">Status</th>
       </tr>
       ${lessonRows}

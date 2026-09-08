@@ -47,16 +47,22 @@ import {
 import {
   POSITIONS,
   RATE_UNIT_LABEL,
+  appliedSlots,
+  capacityLabel,
+  capacityOf,
   countsByLesson,
-  lessonIdsFor,
-  lessonStatusFor,
   lessonsOf,
   isProfileComplete,
   missingProfileFields,
   rateFor,
   rateUnitFor,
+  slotKey,
+  slotStatusFor,
+  slotsLeft,
+  taskSlots,
   type Position,
   type RegistrationStatus,
+  type Slot,
   type Task,
   type Registration,
   type UserProfile,
@@ -65,16 +71,11 @@ import { useLang } from "@/lib/i18n";
 
 type LessonCounts = Record<string, Record<Position, number>>;
 
-/** Remaining slots for a given lesson + position, never negative. */
-function slotsLeft(
-  task: Task,
-  counts: LessonCounts,
-  position: Position,
-  lessonId: string,
-): number {
-  const cap = task.positions[position];
-  const taken = counts[lessonId]?.[position] ?? 0;
-  return Math.max(0, cap - taken);
+/** Every slot still taking applications, in lesson order. */
+function openSlots(task: Task, counts: LessonCounts): Slot[] {
+  return taskSlots(task).filter(
+    (s) => slotsLeft(task, counts, s.lessonId, s.position) > 0,
+  );
 }
 
 export default function TaskDetailPage() {
@@ -85,7 +86,7 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [counts, setCounts] = useState<LessonCounts>({});
   const [myReg, setMyReg] = useState<Registration | null>(null);
-  const [position, setPosition] = useState<Position>("mt");
+  /** Ticked slots, held as `slotKey()` strings. */
   const [selected, setSelected] = useState<string[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -102,15 +103,10 @@ export default function TaskDetailPage() {
         const nextCounts = countsByLesson(fetched, regs);
         setCounts(nextCounts);
 
-        const available = POSITIONS.filter((p) => fetched.positions[p] > 0);
-        const nextPosition = available.includes(position) ? position : (available[0] ?? position);
-        setPosition(nextPosition);
-
-        // Default to signing up for every lesson that still has room.
+        // Default to every slot that still has room — the applicant unticks
+        // the dates and roles they can't cover.
         setSelected(
-          lessonsOf(fetched)
-            .filter((l) => slotsLeft(fetched, nextCounts, nextPosition, l.id) > 0)
-            .map((l) => l.id),
+          openSlots(fetched, nextCounts).map((s) => slotKey(s.lessonId, s.position)),
         );
         if (user) {
           setMyReg(regs.find((r) => r.userId === user.uid) ?? null);
@@ -139,11 +135,11 @@ export default function TaskDetailPage() {
       toast("error", t("profile_required_toast"));
       return;
     }
-    // Slots may have filled since the page loaded — never submit a full lesson.
-    const openSelected = selected.filter(
-      (lessonId) => slotsLeft(task, counts, position, lessonId) > 0,
+    // Slots may have filled since the page loaded — never submit a full one.
+    const stillOpen = openSlots(task, counts).filter((s) =>
+      selected.includes(slotKey(s.lessonId, s.position)),
     );
-    if (openSelected.length === 0) {
+    if (stillOpen.length === 0) {
       toast("error", t("select_lesson_required"));
       return;
     }
@@ -155,8 +151,7 @@ export default function TaskDetailPage() {
         userEmail: user.email ?? "",
         userName: user.displayName ?? user.email ?? t("anonymous"),
         userPhone: profile?.phone ?? "",
-        position,
-        lessonIds: openSelected,
+        slots: stillOpen,
       });
       toast("success", t("app_submitted"));
       await refresh();
@@ -197,7 +192,6 @@ export default function TaskDetailPage() {
   }
 
   const lessons = lessonsOf(task);
-  const availablePositions = POSITIONS.filter((p) => task.positions[p] > 0);
   const multi = lessons.length > 1;
   const courseStart = toDate(lessons[0].startAt);
   const courseEnd = toDate(lessons[lessons.length - 1].endAt);
@@ -214,25 +208,16 @@ export default function TaskDetailPage() {
   const unit = rateUnitFor(task);
   const missing = missingProfileFields(profile);
 
-  function toggleLesson(lessonId: string) {
-    if (slotsLeft(task!, counts, position, lessonId) === 0) return;
+  function toggleSlot(lessonId: string, pos: Position) {
+    if (slotsLeft(task!, counts, lessonId, pos) === 0) return;
+    const key = slotKey(lessonId, pos);
     setSelected((prev) =>
-      prev.includes(lessonId)
-        ? prev.filter((x) => x !== lessonId)
-        : [...prev, lessonId],
-    );
-  }
-
-  function handleSelectPosition(pos: Position) {
-    setPosition(pos);
-    // Re-derive the default selection for the new position's capacity.
-    setSelected(
-      lessons.filter((l) => slotsLeft(task!, counts, pos, l.id) > 0).map((l) => l.id),
+      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key],
     );
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-5xl">
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href="/">
           <ArrowLeft className="h-4 w-4" />
@@ -294,7 +279,7 @@ export default function TaskDetailPage() {
               {RATE_UNIT_LABEL[unit]}
             </InfoRow>
             <InfoRow icon={<Users className="h-4 w-4" />} label={t("label_slots")}>
-              MT {task.positions.mt} · TA {task.positions.ta}
+              MT {capacityLabel(task, "mt")} · TA {capacityLabel(task, "ta")}
               {multi && ` (${t("per_lesson")})`}
             </InfoRow>
             {task.address && (
@@ -374,7 +359,7 @@ export default function TaskDetailPage() {
                     />
                     <span className="font-medium">
                       {t("already_applied")}{" "}
-                      {t(myReg.position === "mt" ? "pos_mt" : "pos_ta")} —{" "}
+                      {appliedRoleLabel(myReg, task, t)} —{" "}
                       {t(statusKey(myReg.status))}
                     </span>
                   </div>
@@ -423,40 +408,16 @@ export default function TaskDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {availablePositions.length > 0 && (
-                    <div className="space-y-2">
-                      <Label>{t("select_position")}</Label>
-                      <div
-                        className={`grid gap-3 ${
-                          availablePositions.length > 1 ? "grid-cols-2" : "grid-cols-1"
-                        }`}
-                      >
-                        {availablePositions.map((pos) => (
-                          <PositionOption
-                            key={pos}
-                            label={t(pos === "mt" ? "pos_mt" : "pos_ta")}
-                            rate={rateFor(task, pos)}
-                            unit={unit}
-                            total={task.positions[pos]}
-                            selected={position === pos}
-                            onSelect={() => handleSelectPosition(pos)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   <LessonPicker
                     task={task}
                     counts={counts}
-                    position={position}
                     selected={selected}
-                    onToggle={toggleLesson}
+                    onToggle={toggleSlot}
                     onSelectAll={() =>
                       setSelected(
-                        lessons
-                          .filter((l) => slotsLeft(task, counts, position, l.id) > 0)
-                          .map((l) => l.id),
+                        openSlots(task, counts).map((s) =>
+                          slotKey(s.lessonId, s.position),
+                        ),
                       )
                     }
                     onClearAll={() => setSelected([])}
@@ -481,7 +442,7 @@ export default function TaskDetailPage() {
                         {t("submitting")}
                       </>
                     ) : (
-                      `${t("submit_application")} (${selected.length} ${t("lessons_count_suffix")})`
+                      `${t("submit_application")} (${selected.length} ${t("slot_count_suffix")})`
                     )}
                   </Button>
                   <p className="text-xs text-muted-foreground">{t("submit_note")}</p>
@@ -495,6 +456,18 @@ export default function TaskDetailPage() {
       <TermsAndConduct />
     </div>
   );
+}
+
+/** "MT 主導師" or "MT 主導師 / TA 助教" when the application mixes roles. */
+function appliedRoleLabel(
+  reg: Registration,
+  task: Task,
+  t: (key: never) => string,
+): string {
+  const roles = appliedSlots(reg, task).map((s) => s.position);
+  return POSITIONS.filter((p) => roles.includes(p))
+    .map((p) => t((p === "mt" ? "pos_mt" : "pos_ta") as never))
+    .join(" / ");
 }
 
 function statusKey(status: RegistrationStatus) {
@@ -515,11 +488,14 @@ function statusVariant(status: RegistrationStatus) {
       : "warning";
 }
 
-/** The lesson table an applicant ticks before submitting. */
+/**
+ * The lesson table an applicant ticks before submitting. Each lesson gets its
+ * own MT and TA column, since a lesson may be hiring one role, the other, or
+ * both — a role with no slots on that lesson shows a dash.
+ */
 function LessonPicker({
   task,
   counts,
-  position,
   selected,
   onToggle,
   onSelectAll,
@@ -527,15 +503,14 @@ function LessonPicker({
 }: {
   task: Task;
   counts: LessonCounts;
-  position: Position;
   selected: string[];
-  onToggle: (lessonId: string) => void;
+  onToggle: (lessonId: string, position: Position) => void;
   onSelectAll: () => void;
   onClearAll: () => void;
 }) {
   const { t } = useLang();
   const lessons = lessonsOf(task);
-  const cap = task.positions[position];
+  const unit = rateUnitFor(task);
 
   return (
     <div className="space-y-2">
@@ -555,46 +530,35 @@ function LessonPicker({
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-border">
-        <table className="w-full min-w-[520px] text-sm">
+        <table className="w-full min-w-[620px] text-sm">
           <thead>
             <tr className="bg-white/60 text-xs text-muted-foreground">
-              <th className="px-3 py-2 w-10" />
               <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
               <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
               <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
-              <th className="px-3 py-2 text-left font-medium">{t("th_slots_left")}</th>
+              {POSITIONS.map((pos) => (
+                <th
+                  key={pos}
+                  className="px-3 py-2 text-center font-medium border-l border-border/70"
+                >
+                  <div className="font-semibold text-foreground">
+                    {t(pos === "mt" ? "pos_mt" : "pos_ta")}
+                  </div>
+                  <div className="font-normal">
+                    {formatCurrency(rateFor(task, pos))}
+                    {RATE_UNIT_LABEL[unit]}
+                  </div>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {lessons.map((lesson, i) => {
               const start = toDate(lesson.startAt);
               const end = toDate(lesson.endAt);
-              const taken = counts[lesson.id]?.[position] ?? 0;
-              const left = Math.max(0, cap - taken);
-              const isFull = left === 0;
-              const isSelected = selected.includes(lesson.id);
+              const cap = capacityOf(task, lesson);
               return (
-                <tr
-                  key={lesson.id}
-                  onClick={() => onToggle(lesson.id)}
-                  aria-disabled={isFull}
-                  className={`border-t border-border/70 transition-colors ${
-                    isFull
-                      ? "cursor-not-allowed opacity-50"
-                      : `cursor-pointer ${isSelected ? "bg-primary/5" : "hover:bg-white/40"}`
-                  }`}
-                >
-                  <td className="px-3 py-2.5">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      disabled={isFull}
-                      onChange={() => onToggle(lesson.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-4 w-4 accent-[hsl(var(--primary))] cursor-pointer disabled:cursor-not-allowed"
-                      aria-label={lesson.title || `${t("form_lesson")} ${i + 1}`}
-                    />
-                  </td>
+                <tr key={lesson.id} className="border-t border-border/70">
                   <td className="px-3 py-2.5 font-medium">
                     {lesson.title || `${t("form_lesson")} ${i + 1}`}
                   </td>
@@ -602,17 +566,59 @@ function LessonPicker({
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {formatTimeRange(start, end)}
                   </td>
-                  <td className="px-3 py-2.5">
-                    {left === 0 ? (
-                      <Badge variant="muted" className="text-[10px]">
-                        {t("full")}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground">
-                        {left} / {cap}
-                      </span>
-                    )}
-                  </td>
+                  {POSITIONS.map((pos) => {
+                    // Not hiring this role on this lesson at all.
+                    if (cap[pos] === 0) {
+                      return (
+                        <td
+                          key={pos}
+                          className="px-3 py-2.5 text-center text-muted-foreground/50 border-l border-border/70"
+                        >
+                          —
+                        </td>
+                      );
+                    }
+                    const left = slotsLeft(task, counts, lesson.id, pos);
+                    const isFull = left === 0;
+                    const isSelected = selected.includes(slotKey(lesson.id, pos));
+                    return (
+                      <td
+                        key={pos}
+                        onClick={() => onToggle(lesson.id, pos)}
+                        aria-disabled={isFull}
+                        className={`px-3 py-2.5 text-center border-l border-border/70 transition-colors ${
+                          isFull
+                            ? "cursor-not-allowed opacity-50"
+                            : `cursor-pointer ${
+                                isSelected ? "bg-primary/5" : "hover:bg-white/40"
+                              }`
+                        }`}
+                      >
+                        <div className="flex items-center justify-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isFull}
+                            onChange={() => onToggle(lesson.id, pos)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-4 w-4 accent-[hsl(var(--primary))] cursor-pointer disabled:cursor-not-allowed"
+                            aria-label={`${lesson.title || `${t("form_lesson")} ${i + 1}`} ${
+                              pos === "mt" ? t("pos_mt") : t("pos_ta")
+                            }`}
+                          />
+                          {isFull ? (
+                            <Badge variant="muted" className="text-[10px]">
+                              {t("full")}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {left} / {cap[pos]}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -624,37 +630,48 @@ function LessonPicker({
   );
 }
 
-/** Per-lesson result table shown after the admin has reviewed. */
+/** Per-slot result table shown after the admin has reviewed. */
 function MyLessonsTable({ task, reg }: { task: Task; reg: Registration }) {
   const { t } = useLang();
-  const ids = lessonIdsFor(reg, task);
-  const lessons = lessonsOf(task).filter((l) => ids.includes(l.id));
-  if (lessons.length === 0) return null;
+  const slots = appliedSlots(reg, task);
+  const lessons = lessonsOf(task);
+  const indexOf = new Map(lessons.map((l, i) => [l.id, i]));
+  if (slots.length === 0) return null;
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-border">
-      <table className="w-full min-w-[460px] text-sm">
+      <table className="w-full min-w-[520px] text-sm">
         <thead>
           <tr className="bg-white/60 text-xs text-muted-foreground">
             <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
             <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
             <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+            <th className="px-3 py-2 text-left font-medium">{t("th_role")}</th>
             <th className="px-3 py-2 text-left font-medium">{t("th_status")}</th>
           </tr>
         </thead>
         <tbody>
-          {lessons.map((lesson, i) => {
+          {slots.map((slot) => {
+            const lesson = lessons.find((l) => l.id === slot.lessonId);
+            if (!lesson) return null;
             const start = toDate(lesson.startAt);
             const end = toDate(lesson.endAt);
-            const st = lessonStatusFor(reg, lesson.id);
+            const st = slotStatusFor(reg, slot.lessonId, slot.position);
             return (
-              <tr key={lesson.id} className="border-t border-border/70">
+              <tr
+                key={slotKey(slot.lessonId, slot.position)}
+                className="border-t border-border/70"
+              >
                 <td className="px-3 py-2.5 font-medium">
-                  {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                  {lesson.title ||
+                    `${t("form_lesson")} ${(indexOf.get(lesson.id) ?? 0) + 1}`}
                 </td>
                 <td className="px-3 py-2.5">{formatDateShort(start)}</td>
                 <td className="px-3 py-2.5 whitespace-nowrap">
                   {formatTimeRange(start, end)}
+                </td>
+                <td className="px-3 py-2.5 whitespace-nowrap">
+                  {t(slot.position === "mt" ? "pos_mt" : "pos_ta")}
                 </td>
                 <td className="px-3 py-2.5">
                   <Badge variant={statusVariant(st)}>{t(statusKey(st))}</Badge>
@@ -685,46 +702,5 @@ function InfoRow({
         <div className="text-sm font-medium">{children}</div>
       </div>
     </div>
-  );
-}
-
-function PositionOption({
-  label,
-  rate,
-  unit,
-  total,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  rate: number;
-  unit: "hourly" | "daily";
-  total: number;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const { t } = useLang();
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`press text-left rounded-2xl border p-3 transition-colors ${
-        selected
-          ? "border-primary ring-1 ring-primary/40 bg-primary/5"
-          : "border-border hover:border-primary/50 bg-white/50"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium text-sm">{label}</span>
-      </div>
-      <p className="text-xs text-muted-foreground mt-1">
-        {formatCurrency(rate)}
-        {RATE_UNIT_LABEL[unit]}
-      </p>
-      <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
-        <CalendarDays className="h-3 w-3" />
-        {total} {t("slots_suffix")} {t("per_lesson")}
-      </p>
-    </button>
   );
 }

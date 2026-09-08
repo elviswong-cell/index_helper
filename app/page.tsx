@@ -22,9 +22,11 @@ import {
   roundHours,
 } from "@/lib/utils";
 import {
+  capacityLabel,
   lessonsOf,
   rateFor,
   rateUnitFor,
+  taskSlots,
   RATE_UNIT_LABEL,
   type Task,
 } from "@/lib/types";
@@ -142,9 +144,10 @@ function TaskCard({ task }: { task: Task }) {
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5 shrink-0" />
-            MT {task.positions.mt} {t("slots_suffix")} · TA {task.positions.ta}{" "}
-            {t("slots_suffix")}
+            MT {capacityLabel(task, "mt")} {t("slots_suffix")} · TA{" "}
+            {capacityLabel(task, "ta")} {t("slots_suffix")}
             {multi && ` (${t("per_lesson")})`}
+            {multi && ` · ${taskSlots(task).length} ${t("total_slots_suffix")}`}
           </span>
         </CardDescription>
       </CardHeader>

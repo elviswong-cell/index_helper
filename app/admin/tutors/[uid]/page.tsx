@@ -43,8 +43,7 @@ import {
 } from "@/lib/utils";
 import {
   lessonAmount,
-  lessonStatusFor,
-  lessonsFor,
+  confirmedSlots,
   monthKey,
   type Invoice,
   type Registration,
@@ -117,18 +116,17 @@ export default function AdminTutorDetailPage() {
       for (const reg of regs) {
         const task = byId.get(reg.taskId);
         if (!task) continue;
-        for (const lesson of lessonsFor(reg, task)) {
-          if (lessonStatusFor(reg, lesson.id) !== "confirmed") continue;
+        for (const { lesson, position } of confirmedSlots(reg, task)) {
           const end = toDate(lesson.endAt);
           rows.push({
-            key: `${task.id}::${lesson.id}`,
+            key: `${task.id}::${lesson.id}::${position}`,
             month: monthKey(lesson.startAt),
             schoolName: task.schoolName,
             lessonTitle: lesson.title ?? "",
-            position: reg.position,
+            position,
             startAt: toDate(lesson.startAt),
             endAt: end,
-            amount: lessonAmount(task, lesson, reg.position),
+            amount: lessonAmount(task, lesson, position),
             completed: !!end && end.getTime() <= now,
           });
         }

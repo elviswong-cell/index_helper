@@ -49,7 +49,7 @@ import {
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import {
   INVOICE_CUTOFF_DAY,
-  billableLessons,
+  billableSlots,
   buildInvoiceItem,
   itemKey,
   missingProfileFields,
@@ -108,11 +108,11 @@ export default function InvoicesPage() {
       for (const reg of regs) {
         const task = byId.get(reg.taskId);
         if (!task) continue;
-        for (const lesson of billableLessons(reg, task)) {
+        for (const { lesson, position } of billableSlots(reg, task)) {
           const key = itemKey(task.id, lesson.id);
           rows.push({
             key,
-            item: buildInvoiceItem(task, lesson, reg.position),
+            item: buildInvoiceItem(task, lesson, position),
             month: monthKey(lesson.startAt),
             invoiced: billed.has(key),
           });

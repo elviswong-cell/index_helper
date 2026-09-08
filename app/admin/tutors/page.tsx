@@ -33,8 +33,7 @@ import { formatCurrency, formatMonth } from "@/lib/utils";
 import {
   isProfileComplete,
   lessonAmount,
-  lessonStatusFor,
-  lessonsFor,
+  confirmedSlots,
   monthKey,
   type Registration,
   type Task,
@@ -99,10 +98,8 @@ export default function AdminTutorsPage() {
     for (const reg of regs) {
       const task = tasksById.get(reg.taskId);
       if (!task) continue;
-      for (const lesson of lessonsFor(reg, task)) {
-        if (lessonStatusFor(reg, lesson.id) === "confirmed") {
-          set.add(monthKey(lesson.startAt));
-        }
+      for (const { lesson } of confirmedSlots(reg, task)) {
+        set.add(monthKey(lesson.startAt));
       }
     }
     return Array.from(set).sort().reverse();
@@ -115,8 +112,7 @@ export default function AdminTutorsPage() {
     for (const reg of regs) {
       const task = tasksById.get(reg.taskId);
       if (!task) continue;
-      for (const lesson of lessonsFor(reg, task)) {
-        if (lessonStatusFor(reg, lesson.id) !== "confirmed") continue;
+      for (const { lesson, position } of confirmedSlots(reg, task)) {
         if (month !== "all" && monthKey(lesson.startAt) !== month) continue;
 
         const entry = byUser.get(reg.userId) ?? { count: 0, done: 0, earned: 0 };
@@ -124,7 +120,7 @@ export default function AdminTutorsPage() {
         const end = toDate(lesson.endAt);
         if (end && end.getTime() <= now) {
           entry.done += 1;
-          entry.earned += lessonAmount(task, lesson, reg.position);
+          entry.earned += lessonAmount(task, lesson, position);
         }
         byUser.set(reg.userId, entry);
       }

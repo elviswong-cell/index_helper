@@ -33,7 +33,7 @@ export default function NewTaskPage() {
       toast("error", t("need_admin_permission"));
       return;
     }
-    const { lessons, startAt, endAt } = lessonsFromForm(values);
+    const { lessons, startAt, endAt, positions } = lessonsFromForm(values);
     const deadline =
       values.deadlineDate && values.deadlineTime
         ? new Date(`${values.deadlineDate}T${values.deadlineTime}:00`)
@@ -50,7 +50,7 @@ export default function NewTaskPage() {
           startAt,
           endAt,
           lessons,
-          positions: { mt: values.mt, ta: values.ta },
+          positions,
           rates: { mt: values.mtRate, ta: values.taRate },
           rateUnit: values.rateUnit,
           ...(values.address ? { address: values.address } : {}),
@@ -83,7 +83,7 @@ export default function NewTaskPage() {
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href="/admin">
           <ArrowLeft className="h-4 w-4" />

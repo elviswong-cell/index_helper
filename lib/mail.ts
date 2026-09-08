@@ -1,8 +1,10 @@
 import { format } from "date-fns";
 import {
   RATE_UNIT_LABEL,
-  lessonStatusFor,
-  lessonsFor,
+  appliedRoles,
+  appliedSlots,
+  lessonsOf,
+  slotStatusFor,
   rateFor,
   rateUnitFor,
   type Registration,
@@ -24,6 +26,8 @@ export interface LessonEmailLine {
   label: string;
   date: string;
   time: string;
+  /** "MT" or "TA" — which role this line was applied for. */
+  position: string;
   status: RegistrationStatus;
 }
 
@@ -64,31 +68,45 @@ export function buildStatusEmailPayload(
   task: Task,
   status: "confirmed" | "declined" | "reserve",
 ): StatusEmailPayload {
-  const applied = lessonsFor(registration, task);
+  const allLessons = lessonsOf(task);
+  const roles = appliedRoles(registration, task);
   const unit = rateUnitFor(task);
   const meetAt = toJsDate(task.meetAt);
   const deadline = toJsDate(task.deadline);
 
-  const lessons: LessonEmailLine[] = applied.map((lesson, i) => {
-    const start = toJsDate(lesson.startAt);
-    const end = toJsDate(lesson.endAt);
-    return {
-      label: lesson.title || `Lesson ${i + 1}`,
-      date: fmtDate(start),
-      time: fmtTimeRange(start, end),
-      status: lessonStatusFor(registration, lesson.id),
-    };
-  });
+  const lessons: LessonEmailLine[] = appliedSlots(registration, task).flatMap(
+    (slot) => {
+      const lesson = allLessons.find((l) => l.id === slot.lessonId);
+      if (!lesson) return [];
+      const start = toJsDate(lesson.startAt);
+      const end = toJsDate(lesson.endAt);
+      return [
+        {
+          label:
+            lesson.title || `Lesson ${allLessons.indexOf(lesson) + 1}`,
+          date: fmtDate(start),
+          time: fmtTimeRange(start, end),
+          position: POSITION_EN[slot.position],
+          status: slotStatusFor(registration, slot.lessonId, slot.position),
+        },
+      ];
+    },
+  );
 
   return {
     to: registration.userEmail,
     userName: registration.userName,
     status,
     schoolName: task.schoolName,
-    position: POSITION_EN[registration.position],
-    pay: `HK$${rateFor(task, registration.position).toLocaleString("en-US")} ${
-      RATE_UNIT_EN[unit]
-    }`,
+    position: roles.map((p) => POSITION_EN[p]).join(" / "),
+    pay: roles
+      .map(
+        (p) =>
+          `${POSITION_EN[p]} HK$${rateFor(task, p).toLocaleString("en-US")} ${
+            RATE_UNIT_EN[unit]
+          }`,
+      )
+      .join(" · "),
     ...(task.address ? { address: task.address } : {}),
     ...(task.mapUrl ? { mapUrl: task.mapUrl } : {}),
     ...(task.notes ? { notes: task.notes } : {}),

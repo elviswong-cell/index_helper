@@ -39,8 +39,11 @@ import {
 } from "@/lib/utils";
 import {
   RATE_UNIT_LABEL,
-  lessonStatusFor,
+  appliedRoles,
+  appliedSlots,
   lessonsFor,
+  slotKey,
+  slotStatusFor,
   rateFor,
   rateUnitFor,
   type Registration,
@@ -187,7 +190,9 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
   const { t } = useLang();
   const task = reg.task;
   const lessons = task ? lessonsFor(reg, task) : [];
-  const multi = lessons.length > 1;
+  const slots = task ? appliedSlots(reg, task) : [];
+  const roles = task ? appliedRoles(reg, task) : [];
+  const multi = slots.length > 1;
   const start = lessons.length > 0 ? toDate(lessons[0].startAt) : null;
   const end =
     lessons.length > 0 ? toDate(lessons[lessons.length - 1].endAt) : null;
@@ -199,7 +204,8 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
   );
   const isConfirmed = reg.status === "confirmed";
   const confirmedCount = task
-    ? lessons.filter((l) => lessonStatusFor(reg, l.id) === "confirmed").length
+    ? slots.filter((s) => slotStatusFor(reg, s.lessonId, s.position) === "confirmed")
+        .length
     : 0;
 
   return (
@@ -212,12 +218,12 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
             </CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2 pt-1">
               <Badge variant={badgeVariantOf(reg.status)}>
-                {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} ·{" "}
+                {roles.map((p) => t(p === "mt" ? "pos_mt" : "pos_ta")).join(" / ")} ·{" "}
                 {t(statusKeyOf(reg.status))}
               </Badge>
               {multi && (
                 <span className="text-xs text-muted-foreground">
-                  {confirmedCount} / {lessons.length} {t("lessons_confirmed_suffix")}
+                  {confirmedCount} / {slots.length} {t("slots_confirmed_suffix")}
                 </span>
               )}
             </CardDescription>
@@ -248,9 +254,14 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <DollarSign className="h-4 w-4" />
-              {formatCurrency(rateFor(task, reg.position))}
-              {RATE_UNIT_LABEL[rateUnitFor(task)]} (
-              {t(reg.position === "mt" ? "pos_mt" : "pos_ta")})
+              {roles
+                .map(
+                  (p) =>
+                    `${formatCurrency(rateFor(task, p))}${
+                      RATE_UNIT_LABEL[rateUnitFor(task)]
+                    } (${t(p === "mt" ? "pos_mt" : "pos_ta")})`,
+                )
+                .join(" · ")}
             </div>
           </div>
 
@@ -262,22 +273,32 @@ function Row({ reg, onCancel }: { reg: JoinedReg; onCancel: () => void }) {
                     <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
                     <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
                     <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+                    <th className="px-3 py-2 text-left font-medium">{t("th_role")}</th>
                     <th className="px-3 py-2 text-left font-medium">{t("th_status")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lessons.map((lesson, i) => {
+                  {slots.map((slot) => {
+                    const lesson = lessons.find((l) => l.id === slot.lessonId);
+                    if (!lesson) return null;
                     const s = toDate(lesson.startAt);
                     const e = toDate(lesson.endAt);
-                    const st = lessonStatusFor(reg, lesson.id);
+                    const st = slotStatusFor(reg, slot.lessonId, slot.position);
                     return (
-                      <tr key={lesson.id} className="border-t border-border/70">
+                      <tr
+                        key={slotKey(slot.lessonId, slot.position)}
+                        className="border-t border-border/70"
+                      >
                         <td className="px-3 py-2.5 font-medium">
-                          {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                          {lesson.title ||
+                            `${t("form_lesson")} ${lessons.indexOf(lesson) + 1}`}
                         </td>
                         <td className="px-3 py-2.5">{formatDateShort(s)}</td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
                           {formatTimeRange(s, e)}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {t(slot.position === "mt" ? "pos_mt" : "pos_ta")}
                         </td>
                         <td className="px-3 py-2.5">
                           <Badge variant={badgeVariantOf(st)}>{t(statusKeyOf(st))}</Badge>

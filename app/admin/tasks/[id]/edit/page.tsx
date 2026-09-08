@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import { getTask, updateTask, toDate } from "@/lib/db";
-import { lessonsOf, rateFor, rateUnitFor, type Task } from "@/lib/types";
+import { capacityOf, lessonsOf, rateFor, rateUnitFor, type Task } from "@/lib/types";
 import {
   TaskForm,
   emptyTaskForm,
@@ -63,7 +63,7 @@ export default function EditTaskPage() {
 
   async function handleUpdate(values: TaskFormValues) {
     if (!user?.isAdmin || !task) return;
-    const { lessons, startAt, endAt } = lessonsFromForm(values);
+    const { lessons, startAt, endAt, positions } = lessonsFromForm(values);
     const deadline =
       values.deadlineDate && values.deadlineTime
         ? new Date(`${values.deadlineDate}T${values.deadlineTime}:00`)
@@ -79,7 +79,7 @@ export default function EditTaskPage() {
         startAt,
         endAt,
         lessons,
-        positions: { mt: values.mt, ta: values.ta },
+        positions,
         rates: { mt: values.mtRate, ta: values.taRate },
         rateUnit: values.rateUnit,
         ...(values.address ? { address: values.address } : {}),
@@ -131,6 +131,9 @@ export default function EditTaskPage() {
     date: toDateInput(toDate(lesson.startAt)),
     startTime: toTimeInput(toDate(lesson.startAt)),
     endTime: toTimeInput(toDate(lesson.endAt)),
+    // Lessons saved before per-lesson slots inherit the task-level capacity.
+    mt: capacityOf(task, lesson).mt,
+    ta: capacityOf(task, lesson).ta,
   }));
 
   const initial: TaskFormValues = {
@@ -139,8 +142,6 @@ export default function EditTaskPage() {
     address: task.address ?? "",
     mapUrl: task.mapUrl ?? "",
     lessons: lessonInputs,
-    mt: task.positions.mt,
-    ta: task.positions.ta,
     mtRate: rateFor(task, "mt"),
     taRate: rateFor(task, "ta"),
     rateUnit: rateUnitFor(task),
@@ -153,7 +154,7 @@ export default function EditTaskPage() {
   };
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="gap-2 -ml-2">
         <Link href={`/admin/tasks/${task.id}`}>
           <ArrowLeft className="h-4 w-4" />

@@ -26,6 +26,14 @@ export interface Lesson {
   startAt: Timestamp | Date;
   endAt: Timestamp | Date;
   title?: string;
+  /** Slots this lesson hires. Missing on lessons predating per-lesson capacity. */
+  positions?: { mt: number; ta: number };
+}
+
+/** One hire: a position on a particular lesson. */
+export interface Slot {
+  lessonId: string;
+  position: Position;
 }
 
 export interface Task {
@@ -56,7 +64,12 @@ export interface Registration {
   userEmail: string;
   userName: string;
   userPhone: string;
+  /** Primary role; read `slots` where the role per lesson matters. */
   position: Position;
+  /** Lesson + position pairs applied for. Missing on legacy documents. */
+  slots?: Slot[];
+  /** Per-slot decision, keyed by `slotKey()`. Falls back to `lessonStatuses`. */
+  slotStatuses?: Record<string, RegistrationStatus>;
   lessonIds?: string[];
   lessonStatuses?: Record<string, RegistrationStatus>;
   status: RegistrationStatus;

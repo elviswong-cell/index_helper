@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { listOpenTasks, toDate } from "@/lib/db";
+import { listOpenTasks, listRegistrationsByTask, toDate } from "@/lib/db";
 import {
   formatDateRange,
   formatTimeRange,
@@ -25,7 +25,9 @@ import {
   lessonsOf,
   rateFor,
   rateUnitFor,
+  taskFill,
   RATE_UNIT_LABEL,
+  type Registration,
   type Task,
 } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
@@ -33,6 +35,7 @@ import { useLang } from "@/lib/i18n";
 export default function HomePage() {
   const { t } = useLang();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [regsByTask, setRegsByTask] = useState<Record<string, Registration[]>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,7 +43,12 @@ export default function HomePage() {
     (async () => {
       try {
         const data = await listOpenTasks();
-        if (!cancelled) setTasks(data);
+        if (cancelled) return;
+        setTasks(data);
+        // Fetched separately so a card can show how full a job is without
+        // the visitor having to open it.
+        const regs = await listRegistrationsByTask(data.map((task) => task.id));
+        if (!cancelled) setRegsByTask(regs);
       } catch (err) {
         console.error("Failed to load tasks:", err);
       } finally {
@@ -84,7 +92,7 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {tasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} regs={regsByTask[task.id] ?? []} />
             ))}
           </div>
         </>
@@ -93,8 +101,9 @@ export default function HomePage() {
   );
 }
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({ task, regs }: { task: Task; regs: Registration[] }) {
   const { t } = useLang();
+  const fill = taskFill(task, regs);
   const lessons = lessonsOf(task);
   const multi = lessons.length > 1;
   const start = toDate(lessons[0].startAt);
@@ -113,8 +122,8 @@ function TaskCard({ task }: { task: Task }) {
           <CardTitle className="text-base leading-snug line-clamp-2">
             {task.schoolName}
           </CardTitle>
-          <Badge variant="success" className="shrink-0">
-            {t("open")}
+          <Badge variant={fill.full ? "muted" : "success"} className="shrink-0">
+            {fill.full ? t("status_full") : t("open")}
           </Badge>
         </div>
         <CardDescription className="space-y-1.5 pt-2">
@@ -142,9 +151,11 @@ function TaskCard({ task }: { task: Task }) {
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5 shrink-0" />
-            MT {task.positions.mt} {t("slots_suffix")} · TA {task.positions.ta}{" "}
-            {t("slots_suffix")}
-            {multi && ` (${t("per_lesson")})`}
+            MT {fill.byPosition.mt.filled}/{fill.byPosition.mt.total} · TA{" "}
+            {fill.byPosition.ta.filled}/{fill.byPosition.ta.total}
+            <span className={fill.full ? "text-muted-foreground" : "text-primary"}>
+              ({fill.full ? t("status_full") : `${fill.left} ${t("slots_left_suffix")}`})
+            </span>
           </span>
         </CardDescription>
       </CardHeader>

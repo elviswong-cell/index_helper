@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowLeft,
   Calendar,
   CheckCircle2,
@@ -52,20 +53,38 @@ import {
   POSITIONS,
   RATE_UNIT_LABEL,
   aggregateStatus,
+  appliedSlots,
+  capacityLabel,
+  capacityOf,
   confirmedFor,
   countsByLesson,
-  lessonStatusMap,
-  lessonsFor,
   lessonsOf,
+  pendingCount,
+  taskFill,
+  slotKey,
+  slotStatusMap,
   rateFor,
   rateUnitFor,
   type Lesson,
   type Position,
   type Task,
   type Registration,
+  type Slot,
   type RegistrationStatus,
 } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
+
+/** "MT 主導師" or "MT 主導師 / TA 助教" when the application mixes roles. */
+function appliedRoleLabel(
+  reg: Registration,
+  task: Task,
+  t: (key: never) => string,
+): string {
+  const roles = appliedSlots(reg, task).map((s) => s.position);
+  return POSITIONS.filter((p) => roles.includes(p))
+    .map((p) => t((p === "mt" ? "pos_mt" : "pos_ta") as never))
+    .join(" / ");
+}
 
 const DECISIONS: RegistrationStatus[] = ["confirmed", "reserve", "declined"];
 
@@ -199,6 +218,7 @@ export default function AdminTaskDetailPage() {
   );
   const unit = rateUnitFor(task);
   const counts = countsByLesson(task, regs);
+  const fill = taskFill(task, regs);
 
   const statusOrder: Record<RegistrationStatus, number> = {
     pending: 0,
@@ -209,7 +229,7 @@ export default function AdminTaskDetailPage() {
   const sortedRegs = [...regs].sort(
     (a, b) => statusOrder[a.status] - statusOrder[b.status],
   );
-  const pendingCount = regs.filter((r) => r.status === "pending").length;
+  const waiting = pendingCount(task, regs);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -228,24 +248,33 @@ export default function AdminTaskDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge
                   variant={
-                    task.status === "open"
-                      ? "success"
-                      : task.status === "cancelled"
-                        ? "destructive"
-                        : "muted"
+                    task.status === "cancelled"
+                      ? "destructive"
+                      : task.status !== "open" || fill.full
+                        ? "muted"
+                        : "success"
                   }
                 >
-                  {t(
-                    task.status === "open"
-                      ? "status_open"
-                      : task.status === "cancelled"
-                        ? "status_cancelled"
-                        : "status_closed",
-                  )}
+                  {task.status === "cancelled"
+                    ? t("status_cancelled")
+                    : task.status !== "open"
+                      ? t("status_closed")
+                      : fill.full
+                        ? t("status_full")
+                        : t("status_open")}
                 </Badge>
                 <Badge variant="muted">
                   {lessons.length} {t("lessons_count_suffix")}
                 </Badge>
+                <Badge variant="muted">
+                  {fill.filled}/{fill.total} {t("slots_filled_suffix")}
+                </Badge>
+                {waiting > 0 && (
+                  <Badge variant="warning" className="gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {waiting} {t("pending_applications")}
+                  </Badge>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -281,7 +310,7 @@ export default function AdminTaskDetailPage() {
               {RATE_UNIT_LABEL[unit]}
             </Field>
             <Field icon={<Users className="h-4 w-4" />} label={t("label_slots")}>
-              MT {task.positions.mt} · TA {task.positions.ta}
+              MT {capacityLabel(task, "mt")} · TA {capacityLabel(task, "ta")}
               {multi && ` (${t("per_lesson")})`}
             </Field>
             {task.address && (
@@ -344,7 +373,7 @@ export default function AdminTaskDetailPage() {
         <CardHeader>
           <CardTitle>{t("registrations_title")}</CardTitle>
           <CardDescription>
-            {regs.length} {t("applied_count")} · {pendingCount} {t("pending_short")}
+            {regs.length} {t("applied_count")} · {waiting} {t("pending_short")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -398,7 +427,7 @@ function RosterRow({
       <td className="px-3 py-2.5 whitespace-nowrap">{formatDateShort(start)}</td>
       <td className="px-3 py-2.5 whitespace-nowrap">{formatTimeRange(start, end)}</td>
       {POSITIONS.map((pos) => {
-        const cap = task.positions[pos];
+        const cap = capacityOf(task, lesson)[pos];
         const taken = counts[lesson.id]?.[pos] ?? 0;
         const names = confirmedFor(task, regs, lesson.id, pos).map((r) => r.userName);
         return (
@@ -452,7 +481,7 @@ function RegistrationRow({
   onRemove: () => void;
 }) {
   const { t } = useLang();
-  const saved = useMemo(() => lessonStatusMap(reg, task), [reg, task]);
+  const saved = useMemo(() => slotStatusMap(reg, task), [reg, task]);
   const [draft, setDraft] = useState<Record<string, RegistrationStatus>>(saved);
   const [notify, setNotify] = useState(true);
 
@@ -461,14 +490,18 @@ function RegistrationRow({
     setDraft(saved);
   }, [saved]);
 
-  const applied = lessonsFor(reg, task);
-  const dirty = applied.some((l) => draft[l.id] !== saved[l.id]);
-  const draftStatus = aggregateStatus(applied.map((l) => draft[l.id]));
-  const confirmedCount = applied.filter((l) => draft[l.id] === "confirmed").length;
+  const lessons = lessonsOf(task);
+  const applied = appliedSlots(reg, task);
+  const keyOf = (s: Slot) => slotKey(s.lessonId, s.position);
+  const dirty = applied.some((s) => draft[keyOf(s)] !== saved[keyOf(s)]);
+  const draftStatus = aggregateStatus(applied.map((s) => draft[keyOf(s)]));
+  const confirmedCount = applied.filter(
+    (s) => draft[keyOf(s)] === "confirmed",
+  ).length;
 
   function setAll(status: RegistrationStatus) {
     const next: Record<string, RegistrationStatus> = { ...draft };
-    for (const l of applied) next[l.id] = status;
+    for (const s of applied) next[keyOf(s)] = status;
     setDraft(next);
   }
 
@@ -487,11 +520,11 @@ function RegistrationRow({
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium truncate">{reg.userName}</span>
             <Badge variant={badgeVariant(reg.status)}>
-              {t(reg.position === "mt" ? "pos_mt" : "pos_ta")} ·{" "}
+              {appliedRoleLabel(reg, task, t)} ·{" "}
               {t(statusLabelKey(reg.status))}
             </Badge>
             <span className="text-xs text-muted-foreground">
-              {confirmedCount} / {applied.length} {t("lessons_confirmed_suffix")}
+              {confirmedCount} / {applied.length} {t("slots_confirmed_suffix")}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3 mt-1">
@@ -532,31 +565,41 @@ function RegistrationRow({
               <th className="px-3 py-2 text-left font-medium">{t("th_lesson")}</th>
               <th className="px-3 py-2 text-left font-medium">{t("th_date")}</th>
               <th className="px-3 py-2 text-left font-medium">{t("th_time")}</th>
+              <th className="px-3 py-2 text-left font-medium">{t("th_role")}</th>
               <th className="px-3 py-2 text-left font-medium">{t("th_filled")}</th>
               <th className="px-3 py-2 text-left font-medium">{t("th_decision")}</th>
             </tr>
           </thead>
           <tbody>
-            {applied.map((lesson, i) => {
+            {applied.map((slot) => {
+              const lesson = lessons.find((l) => l.id === slot.lessonId);
+              if (!lesson) return null;
+              const key = keyOf(slot);
               const start = toDate(lesson.startAt);
               const end = toDate(lesson.endAt);
-              const cap = task.positions[reg.position];
+              const cap = capacityOf(task, lesson)[slot.position];
               // Exclude this applicant so the number reads "others already in".
               const taken =
-                (counts[lesson.id]?.[reg.position] ?? 0) -
-                (saved[lesson.id] === "confirmed" ? 1 : 0);
+                (counts[slot.lessonId]?.[slot.position] ?? 0) -
+                (saved[key] === "confirmed" ? 1 : 0);
               return (
-                <tr key={lesson.id} className="border-t border-border/60">
+                <tr key={key} className="border-t border-border/60">
                   <td className="px-3 py-2 font-medium whitespace-nowrap">
-                    {lesson.title || `${t("form_lesson")} ${i + 1}`}
+                    {lesson.title ||
+                      `${t("form_lesson")} ${lessons.indexOf(lesson) + 1}`}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{formatDateShort(start)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {formatTimeRange(start, end)}
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <Badge variant="muted">
+                      {t(slot.position === "mt" ? "pos_mt" : "pos_ta")}
+                    </Badge>
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
                     {taken} / {cap}
-                    {taken >= cap && draft[lesson.id] !== "confirmed" && (
+                    {taken >= cap && draft[key] !== "confirmed" && (
                       <span className="ml-1 text-destructive">({t("full")})</span>
                     )}
                   </td>
@@ -566,9 +609,9 @@ function RegistrationRow({
                         <button
                           key={d}
                           type="button"
-                          onClick={() => setDraft({ ...draft, [lesson.id]: d })}
+                          onClick={() => setDraft({ ...draft, [key]: d })}
                           className={`press rounded-lg border px-2 py-1 text-xs font-medium transition-colors ${
-                            draft[lesson.id] === d
+                            draft[key] === d
                               ? decisionActiveClass(d)
                               : "border-border bg-white/60 text-muted-foreground hover:border-primary/40"
                           }`}

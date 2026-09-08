@@ -27,6 +27,21 @@ export interface Lesson {
   endAt: Timestamp | Date;
   /** Optional label, e.g. "Workshop day 1". */
   title?: string;
+  /**
+   * Slots this lesson is hiring for. A lesson can want an MT only, a TA only,
+   * or both — set the other side to 0. Missing on tasks saved before per-lesson
+   * capacity existed, which fall back to the task-level `positions`.
+   */
+  positions?: {
+    mt: number;
+    ta: number;
+  };
+}
+
+/** One hire: a position on a particular lesson. The unit applicants apply for. */
+export interface Slot {
+  lessonId: string;
+  position: Position;
 }
 
 export interface Task {
@@ -38,6 +53,10 @@ export interface Task {
   endAt: Timestamp | Date;
   /** Sessions of this course. Older documents have none — see `lessonsOf()`. */
   lessons?: Lesson[];
+  /**
+   * Default slot capacity, used by lessons that don't carry their own
+   * `positions` (every lesson of a task saved before per-lesson capacity).
+   */
   positions: {
     mt: number;
     ta: number;
@@ -69,12 +88,25 @@ export interface Registration {
   userEmail: string;
   userName: string;
   userPhone: string;
+  /**
+   * Primary role, kept for older documents and for anything that shows a
+   * single label. Applications made against per-lesson slots can mix roles —
+   * read `slots` instead wherever the role actually matters.
+   */
   position: Position;
+  /**
+   * Lesson + position pairs the applicant asked for. Missing on documents
+   * written before per-lesson positions existed, which applied as a single
+   * `position` across every id in `lessonIds`.
+   */
+  slots?: Slot[];
+  /** Per-slot admin decision, keyed by `slotKey()`. Falls back to `lessonStatuses`. */
+  slotStatuses?: Record<string, RegistrationStatus>;
   /** Lessons the applicant asked to attend. Missing on legacy documents. */
   lessonIds?: string[];
   /** Per-lesson admin decision. Missing entries fall back to `status`. */
   lessonStatuses?: Record<string, RegistrationStatus>;
-  /** Aggregate of `lessonStatuses` — see `aggregateStatus()`. */
+  /** Aggregate of every slot decision — see `aggregateStatus()`. */
   status: RegistrationStatus;
   createdAt: Timestamp | Date;
   confirmedAt?: Timestamp | Date;
@@ -234,9 +266,134 @@ export function findLesson(task: Task, lessonId: string): Lesson | undefined {
   return lessonsOf(task).find((l) => l.id === lessonId);
 }
 
+// ---------- Slots (lesson + position) ----------
+
+/** Key for one slot's stored decision. */
+export function slotKey(lessonId: string, position: Position): string {
+  return `${lessonId}::${position}`;
+}
+
+/** How many of each role one lesson hires, falling back to the task default. */
+export function capacityOf(task: Task, lesson: Lesson): Record<Position, number> {
+  return {
+    mt: lesson.positions?.mt ?? task.positions.mt,
+    ta: lesson.positions?.ta ?? task.positions.ta,
+  };
+}
+
+export function capacityFor(
+  task: Task,
+  lessonId: string,
+  position: Position,
+): number {
+  const lesson = findLesson(task, lessonId);
+  return lesson ? capacityOf(task, lesson)[position] : 0;
+}
+
+/** Roles this lesson is actually hiring — MT only, TA only, or both. */
+export function hiringPositions(task: Task, lesson: Lesson): Position[] {
+  const cap = capacityOf(task, lesson);
+  return POSITIONS.filter((p) => cap[p] > 0);
+}
+
+/** Every slot the task is hiring for, in lesson order. */
+export function taskSlots(task: Task): Slot[] {
+  return lessonsOf(task).flatMap((lesson) =>
+    hiringPositions(task, lesson).map((position) => ({
+      lessonId: lesson.id,
+      position,
+    })),
+  );
+}
+
+/**
+ * Per-lesson capacity across the whole task, as a min/max range per role.
+ * Lists use this to show "MT 1 · TA 0–2" when lessons differ.
+ */
+export function capacityRange(
+  task: Task,
+): Record<Position, { min: number; max: number }> {
+  const caps = lessonsOf(task).map((l) => capacityOf(task, l));
+  const range = (p: Position) => {
+    const values = caps.map((c) => c[p]);
+    return { min: Math.min(...values), max: Math.max(...values) };
+  };
+  return { mt: range("mt"), ta: range("ta") };
+}
+
+/** "1" when every lesson matches, "0–2" when they differ. */
+export function capacityLabel(task: Task, position: Position): string {
+  const { min, max } = capacityRange(task)[position];
+  return min === max ? String(min) : `${min}–${max}`;
+}
+
+/**
+ * Slots an applicant signed up for, in lesson order. Registrations written
+ * before per-lesson positions applied as one role across every chosen lesson.
+ */
+export function appliedSlots(reg: Registration, task: Task): Slot[] {
+  const order = lessonsOf(task).map((l) => l.id);
+  if (reg.slots && reg.slots.length > 0) {
+    // Drop slots for lessons the admin has since removed.
+    return order.flatMap((lessonId) =>
+      POSITIONS.filter((position) =>
+        reg.slots!.some((s) => s.lessonId === lessonId && s.position === position),
+      ).map((position) => ({ lessonId, position })),
+    );
+  }
+  return lessonIdsFor(reg, task).map((lessonId) => ({
+    lessonId,
+    position: reg.position,
+  }));
+}
+
+/** Distinct roles the applicant asked for anywhere in this job, MT first. */
+export function appliedRoles(reg: Registration, task: Task): Position[] {
+  const roles = appliedSlots(reg, task).map((s) => s.position);
+  return POSITIONS.filter((p) => roles.includes(p));
+}
+
+/** Roles the applicant asked for on one lesson. */
+export function positionsAppliedFor(
+  reg: Registration,
+  task: Task,
+  lessonId: string,
+): Position[] {
+  return appliedSlots(reg, task)
+    .filter((s) => s.lessonId === lessonId)
+    .map((s) => s.position);
+}
+
+export function slotStatusFor(
+  reg: Registration,
+  lessonId: string,
+  position: Position,
+): RegistrationStatus {
+  return (
+    reg.slotStatuses?.[slotKey(lessonId, position)] ??
+    reg.lessonStatuses?.[lessonId] ??
+    reg.status
+  );
+}
+
+/** Full slotKey -> status map for a registration. */
+export function slotStatusMap(
+  reg: Registration,
+  task: Task,
+): Record<string, RegistrationStatus> {
+  const out: Record<string, RegistrationStatus> = {};
+  for (const s of appliedSlots(reg, task)) {
+    out[slotKey(s.lessonId, s.position)] = slotStatusFor(reg, s.lessonId, s.position);
+  }
+  return out;
+}
+
 /** Lessons an applicant signed up for. Legacy registrations cover every lesson. */
 export function lessonIdsFor(reg: Registration, task: Task): string[] {
   const all = lessonsOf(task).map((l) => l.id);
+  if (reg.slots && reg.slots.length > 0) {
+    return all.filter((id) => reg.slots!.some((s) => s.lessonId === id));
+  }
   if (!reg.lessonIds || reg.lessonIds.length === 0) return all;
   // Keep task order, and drop ids for lessons the admin has since removed.
   return all.filter((id) => reg.lessonIds!.includes(id));
@@ -248,10 +405,20 @@ export function lessonsFor(reg: Registration, task: Task): Lesson[] {
   return lessonsOf(task).filter((l) => ids.includes(l.id));
 }
 
+/**
+ * One lesson's decision. When the applicant asked for both roles on it, the
+ * per-role decisions collapse the same way the overall status does.
+ */
 export function lessonStatusFor(
   reg: Registration,
   lessonId: string,
 ): RegistrationStatus {
+  if (reg.slots && reg.slots.length > 0) {
+    const statuses = reg.slots
+      .filter((s) => s.lessonId === lessonId)
+      .map((s) => slotStatusFor(reg, lessonId, s.position));
+    if (statuses.length > 0) return aggregateStatus(statuses);
+  }
   return reg.lessonStatuses?.[lessonId] ?? reg.status;
 }
 
@@ -280,9 +447,9 @@ export function aggregateStatus(
   return "declined";
 }
 
-/** True when the admin approved some but not all of the applied lessons. */
+/** True when the admin approved some but not all of the applied slots. */
 export function isPartial(reg: Registration, task: Task): boolean {
-  const statuses = Object.values(lessonStatusMap(reg, task));
+  const statuses = Object.values(slotStatusMap(reg, task));
   return (
     statuses.length > 1 &&
     statuses.includes("confirmed") &&
@@ -290,12 +457,12 @@ export function isPartial(reg: Registration, task: Task): boolean {
   );
 }
 
-export function countLessonStatus(
+export function countSlotStatus(
   reg: Registration,
   task: Task,
   status: RegistrationStatus,
 ): number {
-  return Object.values(lessonStatusMap(reg, task)).filter((s) => s === status)
+  return Object.values(slotStatusMap(reg, task)).filter((s) => s === status)
     .length;
 }
 
@@ -307,14 +474,94 @@ export function countsByLesson(
   const out: Record<string, Record<Position, number>> = {};
   for (const lesson of lessonsOf(task)) out[lesson.id] = { mt: 0, ta: 0 };
   for (const reg of regs) {
-    for (const lessonId of lessonIdsFor(reg, task)) {
-      if (!out[lessonId]) continue;
-      if (lessonStatusFor(reg, lessonId) === "confirmed") {
-        out[lessonId][reg.position] += 1;
+    for (const slot of appliedSlots(reg, task)) {
+      if (!out[slot.lessonId]) continue;
+      if (slotStatusFor(reg, slot.lessonId, slot.position) === "confirmed") {
+        out[slot.lessonId][slot.position] += 1;
       }
     }
   }
   return out;
+}
+
+/** How full a whole job is, for the summary shown on list cards. */
+export interface TaskFill {
+  /** Slots this job is hiring, across every lesson. */
+  total: number;
+  /** Slots with a confirmed applicant. */
+  filled: number;
+  /** Slots still open. */
+  left: number;
+  byPosition: Record<Position, { total: number; filled: number; left: number }>;
+  /** No room left anywhere — the job reads as "Full" rather than "Open". */
+  full: boolean;
+}
+
+export function taskFill(task: Task, regs: Registration[]): TaskFill {
+  const counts = countsByLesson(task, regs);
+  const byPosition: TaskFill["byPosition"] = {
+    mt: { total: 0, filled: 0, left: 0 },
+    ta: { total: 0, filled: 0, left: 0 },
+  };
+
+  for (const lesson of lessonsOf(task)) {
+    const cap = capacityOf(task, lesson);
+    for (const position of POSITIONS) {
+      // More confirmations than slots shouldn't happen, but never let an
+      // over-filled lesson report negative room.
+      const taken = Math.min(counts[lesson.id]?.[position] ?? 0, cap[position]);
+      byPosition[position].total += cap[position];
+      byPosition[position].filled += taken;
+      byPosition[position].left += cap[position] - taken;
+    }
+  }
+
+  const total = byPosition.mt.total + byPosition.ta.total;
+  const filled = byPosition.mt.filled + byPosition.ta.filled;
+  return { total, filled, left: total - filled, byPosition, full: total - filled === 0 };
+}
+
+/**
+ * True when this application still has something for the admin to decide.
+ * Task-free, so the header badge can count across every job without loading
+ * them all; use `pendingCount` where the task is at hand.
+ */
+export function needsDecision(reg: Registration): boolean {
+  if (reg.slots && reg.slots.length > 0) {
+    return reg.slots.some(
+      (s) =>
+        (reg.slotStatuses?.[slotKey(s.lessonId, s.position)] ??
+          reg.lessonStatuses?.[s.lessonId] ??
+          reg.status) === "pending",
+    );
+  }
+  const statuses = Object.values(reg.lessonStatuses ?? {});
+  if (statuses.length > 0) return statuses.some((s) => s === "pending");
+  return reg.status === "pending";
+}
+
+/**
+ * Applications still waiting on the admin — anyone with at least one slot
+ * left undecided. A part-approved application still counts while any of its
+ * slots is pending.
+ */
+export function pendingCount(task: Task, regs: Registration[]): number {
+  return regs.filter((reg) =>
+    appliedSlots(reg, task).some(
+      (s) => slotStatusFor(reg, s.lessonId, s.position) === "pending",
+    ),
+  ).length;
+}
+
+/** Remaining room for one slot, never negative. */
+export function slotsLeft(
+  task: Task,
+  counts: Record<string, Record<Position, number>>,
+  lessonId: string,
+  position: Position,
+): number {
+  const cap = capacityFor(task, lessonId, position);
+  return Math.max(0, cap - (counts[lessonId]?.[position] ?? 0));
 }
 
 // ---------- Invoicing ----------
@@ -334,16 +581,31 @@ export function monthKey(value: Timestamp | Date): string {
  * already finished. Lessons still to come are deliberately excluded — the
  * invoice button must stay unavailable until the work is done.
  */
-export function billableLessons(
+export function billableSlots(
   reg: Registration,
   task: Task,
   now: Date = new Date(),
-): Lesson[] {
-  return lessonsFor(reg, task).filter(
-    (lesson) =>
-      lessonStatusFor(reg, lesson.id) === "confirmed" &&
-      asDate(lesson.endAt).getTime() <= now.getTime(),
+): Array<{ lesson: Lesson; position: Position }> {
+  return confirmedSlots(reg, task).filter(
+    ({ lesson }) => asDate(lesson.endAt).getTime() <= now.getTime(),
   );
+}
+
+/**
+ * Slots the admin approved, whether or not the lesson has happened yet —
+ * the work someone is actually rostered for.
+ */
+export function confirmedSlots(
+  reg: Registration,
+  task: Task,
+): Array<{ lesson: Lesson; position: Position }> {
+  const byId = new Map(lessonsOf(task).map((l) => [l.id, l]));
+  return appliedSlots(reg, task).flatMap((slot) => {
+    const lesson = byId.get(slot.lessonId);
+    if (!lesson) return [];
+    if (slotStatusFor(reg, slot.lessonId, slot.position) !== "confirmed") return [];
+    return [{ lesson, position: slot.position }];
+  });
 }
 
 /**
@@ -411,8 +673,8 @@ export function confirmedFor(
 ): Registration[] {
   return regs.filter(
     (r) =>
-      r.position === position &&
-      lessonIdsFor(r, task).includes(lessonId) &&
-      lessonStatusFor(r, lessonId) === "confirmed",
+      appliedSlots(r, task).some(
+        (s) => s.lessonId === lessonId && s.position === position,
+      ) && slotStatusFor(r, lessonId, position) === "confirmed",
   );
 }

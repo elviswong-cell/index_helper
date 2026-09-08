@@ -6,6 +6,7 @@ import {
   deleteDoc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   where,
   orderBy,
@@ -17,20 +18,24 @@ import {
 import { db } from "./firebase";
 import {
   aggregateStatus,
+  appliedSlots,
+  capacityFor,
   countsByLesson,
   findLesson,
   itemKey,
   lessonIdsFor,
-  lessonStatusMap,
   lessonsOf,
   missingProfileFields,
+  slotKey,
+  slotStatusMap,
+  taskSlots,
   type Invoice,
   type InvoiceItem,
   type InvoiceStatus,
   type Task,
   type Registration,
-  type Position,
   type RegistrationStatus,
+  type Slot,
   type TaskStatus,
   type UserProfile,
 } from "./types";
@@ -118,9 +123,11 @@ export async function registerForTask(args: {
   userEmail: string;
   userName: string;
   userPhone: string;
-  position: Position;
-  /** Lessons the applicant can attend. Must be a non-empty subset of the task's lessons. */
-  lessonIds: string[];
+  /**
+   * Lesson + position pairs the applicant can cover. Must be non-empty, and
+   * every pair must be a slot the task is actually hiring for.
+   */
+  slots: Slot[];
 }): Promise<{ id: string; status: RegistrationStatus }> {
   if (!db) throw new Error("Firestore not initialized");
 
@@ -138,11 +145,16 @@ export async function registerForTask(args: {
     throw new Error("已過報名截止時間");
   }
 
-  const validIds = lessonsOf(task).map((l) => l.id);
-  const lessonIds = validIds.filter((id) => args.lessonIds.includes(id));
-  if (lessonIds.length === 0) {
-    throw new Error("請至少選擇一堂課");
+  // Keep only pairs this task actually hires for, in the task's own order.
+  const slots = taskSlots(task).filter((s) =>
+    args.slots.some((a) => a.lessonId === s.lessonId && a.position === s.position),
+  );
+  if (slots.length === 0) {
+    throw new Error("請至少選擇一堂課的一個職位");
   }
+  const lessonIds = lessonsOf(task)
+    .map((l) => l.id)
+    .filter((id) => slots.some((s) => s.lessonId === id));
 
   const dupQ = query(
     collection(db, "registrations"),
@@ -155,6 +167,10 @@ export async function registerForTask(args: {
   }
 
   const status: RegistrationStatus = "pending";
+  const slotStatuses: Record<string, RegistrationStatus> = {};
+  for (const s of slots) slotStatuses[slotKey(s.lessonId, s.position)] = "pending";
+  // Mirrors of the slot data, so anything still reading the old per-lesson
+  // shape (older invoices, the admin export) keeps working.
   const lessonStatuses: Record<string, RegistrationStatus> = {};
   for (const id of lessonIds) lessonStatuses[id] = "pending";
 
@@ -164,7 +180,9 @@ export async function registerForTask(args: {
     userEmail: args.userEmail,
     userName: args.userName,
     userPhone: args.userPhone,
-    position: args.position,
+    position: slots[0].position,
+    slots,
+    slotStatuses,
     lessonIds,
     lessonStatuses,
     status,
@@ -175,13 +193,14 @@ export async function registerForTask(args: {
 }
 
 /**
- * Admin decides an application lesson by lesson — accept some dates,
- * decline others. `decisions` is a lessonId -> status patch that gets merged
+ * Admin decides an application slot by slot — accept some dates or roles,
+ * decline others. `decisions` is a slotKey -> status patch that gets merged
  * onto whatever is already stored; the aggregate `status` is recomputed.
  *
- * Capacity is enforced per lesson (each lesson has its own MT/TA slots).
- * Sending the notification email is a separate step — call sendStatusEmail()
- * (in lib/mail.ts) with the returned registration after this succeeds.
+ * Capacity is enforced per lesson per position, using that lesson's own MT/TA
+ * slots. Sending the notification email is a separate step — call
+ * sendStatusEmail() (in lib/mail.ts) with the returned registration after
+ * this succeeds.
  */
 export async function decideRegistration(
   registration: Registration,
@@ -190,16 +209,17 @@ export async function decideRegistration(
 ): Promise<Registration> {
   if (!db) throw new Error("Firestore not initialized");
 
-  const applied = lessonIdsFor(registration, task);
-  const current = lessonStatusMap(registration, task);
+  const applied = appliedSlots(registration, task);
+  const current = slotStatusMap(registration, task);
   const next: Record<string, RegistrationStatus> = { ...current };
 
-  const newlyConfirmed: string[] = [];
-  for (const [lessonId, status] of Object.entries(decisions)) {
-    if (!applied.includes(lessonId)) continue;
-    if (current[lessonId] === status) continue;
-    next[lessonId] = status;
-    if (status === "confirmed") newlyConfirmed.push(lessonId);
+  const newlyConfirmed: Slot[] = [];
+  for (const [key, status] of Object.entries(decisions)) {
+    const slot = applied.find((s) => slotKey(s.lessonId, s.position) === key);
+    if (!slot) continue;
+    if (current[key] === status) continue;
+    next[key] = status;
+    if (status === "confirmed") newlyConfirmed.push(slot);
   }
 
   if (newlyConfirmed.length > 0) {
@@ -207,37 +227,53 @@ export async function decideRegistration(
       (r) => r.id !== registration.id,
     );
     const counts = countsByLesson(task, others);
-    const cap = task.positions[registration.position];
-    for (const lessonId of newlyConfirmed) {
-      const used = counts[lessonId]?.[registration.position] ?? 0;
+    for (const slot of newlyConfirmed) {
+      const cap = capacityFor(task, slot.lessonId, slot.position);
+      const used = counts[slot.lessonId]?.[slot.position] ?? 0;
       if (used >= cap) {
-        const lesson = findLesson(task, lessonId);
+        const lesson = findLesson(task, slot.lessonId);
         const label = lesson?.title || formatLessonDay(lesson);
         throw new Error(
-          `「${label}」的${registration.position.toUpperCase()}名額已滿，無法確認`,
+          `「${label}」的${slot.position.toUpperCase()}名額已滿，無法確認`,
         );
       }
     }
   }
 
   const status = aggregateStatus(Object.values(next));
-  const patch: Record<string, unknown> = { lessonStatuses: next, status };
+  // Collapse back onto the per-lesson shape too, so legacy readers stay right.
+  const lessonStatuses: Record<string, RegistrationStatus> = {};
+  for (const lessonId of lessonIdsFor(registration, task)) {
+    lessonStatuses[lessonId] = aggregateStatus(
+      applied
+        .filter((s) => s.lessonId === lessonId)
+        .map((s) => next[slotKey(s.lessonId, s.position)]),
+    );
+  }
+
+  const patch: Record<string, unknown> = {
+    slotStatuses: next,
+    lessonStatuses,
+    status,
+  };
   if (status === "confirmed" && registration.status !== "confirmed") {
     patch.confirmedAt = serverTimestamp();
   }
   await updateDoc(doc(db, "registrations", registration.id), patch);
 
-  return { ...registration, lessonStatuses: next, status };
+  return { ...registration, slotStatuses: next, lessonStatuses, status };
 }
 
-/** Apply one decision to every lesson the applicant signed up for. */
-export async function decideAllLessons(
+/** Apply one decision to every slot the applicant signed up for. */
+export async function decideAllSlots(
   registration: Registration,
   task: Task,
   status: RegistrationStatus,
 ): Promise<Registration> {
   const decisions: Record<string, RegistrationStatus> = {};
-  for (const id of lessonIdsFor(registration, task)) decisions[id] = status;
+  for (const s of appliedSlots(registration, task)) {
+    decisions[slotKey(s.lessonId, s.position)] = status;
+  }
   return decideRegistration(registration, task, decisions);
 }
 
@@ -278,6 +314,47 @@ export async function listRegistrationsForTask(
   const snap = await getDocs(q);
   return snap.docs.map(
     (d) => ({ id: d.id, ...(d.data() as Omit<Registration, "id">) }),
+  );
+}
+
+/**
+ * Registrations for several jobs at once, keyed by task id. Used by the list
+ * pages so each card can show how full it is without opening the job.
+ * Queried per task (rather than reading the whole collection) so it works
+ * for signed-out visitors on the public job list.
+ */
+export async function listRegistrationsByTask(
+  taskIds: string[],
+): Promise<Record<string, Registration[]>> {
+  const results = await Promise.all(
+    taskIds.map(async (taskId) => {
+      try {
+        return [taskId, await listRegistrationsForTask(taskId)] as const;
+      } catch {
+        // One unreadable job shouldn't blank out the whole list.
+        return [taskId, [] as Registration[]] as const;
+      }
+    }),
+  );
+  return Object.fromEntries(results);
+}
+
+/**
+ * Live view of every registration, for the admin's "waiting for you" badge.
+ * Returns an unsubscribe function. Admin-only in practice — see Firestore rules.
+ */
+export function watchAllRegistrations(
+  onChange: (regs: Registration[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  if (!db) throw new Error("Firestore not initialized");
+  return onSnapshot(
+    collection(db, "registrations"),
+    (snap) =>
+      onChange(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Registration, "id">) })),
+      ),
+    onError,
   );
 }
 

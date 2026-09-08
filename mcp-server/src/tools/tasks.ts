@@ -3,7 +3,7 @@ import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db, actingAdminUid } from "../firebase.js";
-import { lessonsOf, rateFor, rateUnitFor } from "../domain.js";
+import { capacityOf, lessonsOf, rateFor, rateUnitFor, taskSlots } from "../domain.js";
 import { jsonText, handleError } from "../serialize.js";
 import type { Lesson, Task, TaskStatus } from "../types.js";
 
@@ -32,6 +32,16 @@ const LessonInputSchema = z
       .max(200)
       .optional()
       .describe("Optional label for this session, e.g. 'Workshop day 1'."),
+    positions: z
+      .object({
+        mt: z.number().int().min(0).max(999).describe("MT slots for THIS lesson."),
+        ta: z.number().int().min(0).max(999).describe("TA slots for THIS lesson."),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "Slots this lesson hires. Set one side to 0 for a lesson that only needs the other role. Defaults to the task-level 'positions'.",
+      ),
   })
   .strict();
 
@@ -65,7 +75,9 @@ const TaskCreateInputSchema = z
       .array(LessonInputSchema)
       .min(1)
       .describe("One or more sessions. Applicants pick which they can attend; the admin approves lesson by lesson."),
-    positions: PositionsSchema.describe("Slot capacity per lesson (same cap applies to every lesson in this task)."),
+    positions: PositionsSchema.describe(
+      "Default slot capacity, used by every lesson that doesn't set its own 'positions'.",
+    ),
     rates: RatesSchema.optional().describe("Pay rate per position. Omit only for legacy-style tasks."),
     rate_unit: z
       .enum(["hourly", "daily"])
@@ -91,11 +103,15 @@ function toTimestamp(iso: string): Timestamp {
   return Timestamp.fromDate(new Date(iso));
 }
 
-function lessonsToDoc(lessons: TaskCreateInput["lessons"]): Lesson[] {
+function lessonsToDoc(
+  lessons: TaskCreateInput["lessons"],
+  fallback: { mt: number; ta: number },
+): Lesson[] {
   return lessons.map((l) => ({
     id: l.id ?? `lesson_${randomUUID().slice(0, 8)}`,
     startAt: toTimestamp(l.start_at),
     endAt: toTimestamp(l.end_at),
+    positions: l.positions ?? fallback,
     ...(l.title ? { title: l.title } : {}),
   }));
 }
@@ -124,6 +140,11 @@ function taskSummary(task: Task) {
     starts_at: task.startAt,
     ends_at: task.endAt,
     positions: task.positions,
+    lesson_positions: lessons.map((l) => ({
+      lesson_id: l.id,
+      ...capacityOf(task, l),
+    })),
+    total_slots: taskSlots(task).length,
     rate_unit: rateUnitFor(task),
     mt_rate: rateFor(task, "mt"),
     ta_rate: rateFor(task, "ta"),
@@ -138,11 +159,15 @@ export function registerTaskTools(server: McpServer): void {
       title: "Create Task",
       description: `Create a new job posting (a "task") with one or more lessons applicants can sign up for.
 
-Args: school_name, lessons[] (start_at/end_at/title), positions {mt, ta}, rates {mt, ta}, rate_unit, address, map_url, deadline, meet_url, meet_at, notes, status, admin_uid.
+Args: school_name, lessons[] (start_at/end_at/title/positions), positions {mt, ta}, rates {mt, ta}, rate_unit, address, map_url, deadline, meet_url, meet_at, notes, status, admin_uid.
+
+Slots are per lesson: give a lesson its own 'positions' to hire an MT only, a TA only, or both. Lessons without one inherit the task-level 'positions'.
 
 Returns: the created task's id plus the stored task document (JSON), with all timestamps as ISO strings.
 
 Example: creating a single-session job -> lessons: [{start_at: "2026-09-25T09:00:00+08:00", end_at: "2026-09-25T12:00:00+08:00"}], positions: {mt: 0, ta: 3}.
+
+Example: a course where only two dates need an external TA -> positions: {mt: 0, ta: 0} and give just those two lessons positions: {mt: 0, ta: 1}.
 
 Error Handling:
   - Returns "Error: ..." if Firestore write fails or no admin UID is available (set ADMIN_UID env var or pass admin_uid).`,
@@ -152,7 +177,7 @@ Error Handling:
     async (params: TaskCreateInput) => {
       try {
         const adminUid = actingAdminUid(params.admin_uid);
-        const lessons = lessonsToDoc(params.lessons);
+        const lessons = lessonsToDoc(params.lessons, params.positions);
         const { startAt, endAt } = taskBoundsFrom(lessons);
 
         const payload: Record<string, unknown> = {
@@ -247,7 +272,12 @@ Error Handling:
         if (params.notes !== undefined) patch.notes = params.notes;
         if (params.status !== undefined) patch.status = params.status;
         if (params.lessons !== undefined) {
-          const lessons = lessonsToDoc(params.lessons);
+          // Lessons that don't carry their own slots inherit the new
+          // task-level cap when one was sent, else the stored one.
+          const fallback =
+            params.positions ??
+            (existing.data() as Omit<Task, "id">).positions ?? { mt: 0, ta: 0 };
+          const lessons = lessonsToDoc(params.lessons, fallback);
           const { startAt, endAt } = taskBoundsFrom(lessons);
           patch.lessons = lessons;
           patch.startAt = startAt;
@@ -393,7 +423,7 @@ Returns: the task document (JSON) or "Error: Task <id> not found".`,
       description: `List tasks, newest first, as compact summaries (use helper_recruitment_get_task for full detail on one).
 
 Args: status ('open' | 'closed' | 'cancelled' | 'all', default 'all'), limit (1-200, default 50).
-Returns: {"count": number, "tasks": [{id, school_name, status, lesson_count, starts_at, ends_at, positions, rate_unit, mt_rate, ta_rate, deadline}]}.`,
+Returns: {"count": number, "tasks": [{id, school_name, status, lesson_count, starts_at, ends_at, positions, lesson_positions: [{lesson_id, mt, ta}], total_slots, rate_unit, mt_rate, ta_rate, deadline}]}.`,
       inputSchema: TaskListInputSchema.shape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },

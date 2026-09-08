@@ -258,6 +258,22 @@ export function lessonsOf(task: Task): Lesson[] {
   return [{ id: LEGACY_LESSON_ID, startAt: task.startAt, endAt: task.endAt }];
 }
 
+/**
+ * The distinct calendar days a course runs on, in order. A day with several
+ * sessions (three class periods on one school visit) counts once — this is
+ * "which dates does this course have", not "how many lessons".
+ */
+export function lessonDays(task: Task): Date[] {
+  const seen = new Map<string, Date>();
+  for (const lesson of lessonsOf(task)) {
+    const d = asDate(lesson.startAt);
+    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const key = day.toDateString();
+    if (!seen.has(key)) seen.set(key, day);
+  }
+  return [...seen.values()].sort((a, b) => a.getTime() - b.getTime());
+}
+
 export function isMultiLesson(task: Task): boolean {
   return lessonsOf(task).length > 1;
 }

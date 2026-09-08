@@ -69,6 +69,8 @@ export const dict: Dict = {
   lessons_count_suffix: { en: "lessons", zh: "堂" },
   total_suffix: { en: "in total", zh: "合計" },
   per_lesson: { en: "per lesson", zh: "每堂" },
+  show_course_calendar: { en: "Show the course calendar", zh: "顯示課堂日曆" },
+  course_days_suffix: { en: "course days", zh: "個上課日" },
   select_lessons: {
     en: "Select the lessons and roles you can cover",
     zh: "選擇你可以出席的堂數及職位",

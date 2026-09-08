@@ -15,13 +15,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { listOpenTasks, listRegistrationsByTask, toDate } from "@/lib/db";
 import {
-  formatDateRange,
+  formatDayList,
   formatTimeRange,
   formatCurrency,
   durationHours,
   roundHours,
 } from "@/lib/utils";
 import {
+  lessonDays,
   lessonsOf,
   rateFor,
   rateUnitFor,
@@ -30,6 +31,7 @@ import {
   type Registration,
   type Task,
 } from "@/lib/types";
+import { LessonCalendarHover } from "@/components/lesson-calendar";
 import { useLang } from "@/lib/i18n";
 
 export default function HomePage() {
@@ -106,6 +108,7 @@ function TaskCard({ task, regs }: { task: Task; regs: Registration[] }) {
   const fill = taskFill(task, regs);
   const lessons = lessonsOf(task);
   const multi = lessons.length > 1;
+  const days = lessonDays(task);
   const start = toDate(lessons[0].startAt);
   const end = toDate(lessons[lessons.length - 1].endAt);
   const hours = roundHours(
@@ -129,7 +132,7 @@ function TaskCard({ task, regs }: { task: Task; regs: Registration[] }) {
         <CardDescription className="space-y-1.5 pt-2">
           <span className="flex items-center gap-2 text-xs">
             <Calendar className="h-3.5 w-3.5 shrink-0" />
-            {formatDateRange(start, end)}
+            <LessonCalendarHover days={days}>{formatDayList(days)}</LessonCalendarHover>
           </span>
           <span className="flex items-center gap-2 text-xs">
             <Clock className="h-3.5 w-3.5 shrink-0" />

@@ -43,6 +43,42 @@ export function formatDateRange(
   return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
+/** Monday = 0 … Sunday = 6, so a calendar grid can start on Monday. */
+export function mondayIndex(date: Date): number {
+  return (date.getDay() + 6) % 7;
+}
+
+/**
+ * One month laid out as whole Monday-start weeks. Days outside the month are
+ * `null` rather than spilling in from the neighbours, so each date sits under
+ * the right weekday column.
+ */
+export function monthCells(year: number, month: number): (number | null)[] {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array<null>(mondayIndex(new Date(year, month, 1))).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+/** "10/7" — the compact form used to list a course's dates on a job card. */
+export function formatDayShort(value: Date | null | undefined): string {
+  if (!value) return "";
+  return `${value.getMonth() + 1}/${value.getDate()}`;
+}
+
+/**
+ * "10/7, 10/14, 10/21" — every date a course runs on. Long courses are cut
+ * off with a "+N" tail; the hover calendar shows the rest.
+ */
+export function formatDayList(days: Date[], max = 6): string {
+  if (days.length === 0) return "";
+  const shown = days.slice(0, max).map(formatDayShort).join(", ");
+  return days.length > max ? `${shown} +${days.length - max}` : shown;
+}
+
 export function durationHours(
   start: Date | null | undefined,
   end: Date | null | undefined,

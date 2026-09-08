@@ -354,17 +354,29 @@ Returns: {"id": string, "status": "open"}.`,
     "helper_recruitment_delete_task",
     {
       title: "Delete Task",
-      description: `Permanently delete a task document. This does NOT delete its registrations — they become orphaned. Prefer helper_recruitment_cancel_task unless you specifically need to remove the record (e.g. it was created by mistake and has no registrations yet).
+      description: `Permanently delete a task AND every registration for it. Prefer helper_recruitment_cancel_task unless you specifically need to remove the record (e.g. it was created by mistake) — cancelling keeps the applicants' history, deleting throws it away.
 
 Args: task_id (required).
-Returns: {"id": string, "deleted": true}.`,
+Returns: {"id": string, "deleted": true, "registrations_deleted": number}.`,
       inputSchema: TaskStatusChangeSchema.shape,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ task_id }: { task_id: string }) => {
       try {
+        // Registrations go first: a job deleted with its applications left
+        // behind leaves them pointing at nothing, and they keep showing up in
+        // the admin's "waiting for review" count forever.
+        const regs = await db
+          .collection("registrations")
+          .where("taskId", "==", task_id)
+          .get();
+        await Promise.all(regs.docs.map((d) => d.ref.delete()));
         await db.collection("tasks").doc(task_id).delete();
-        const output = { id: task_id, deleted: true };
+        const output = {
+          id: task_id,
+          deleted: true,
+          registrations_deleted: regs.size,
+        };
         return { content: [{ type: "text" as const, text: jsonText(output) }], structuredContent: output };
       } catch (error) {
         return handleError(error);

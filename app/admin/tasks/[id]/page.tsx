@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowLeft,
   Calendar,
   CheckCircle2,
@@ -58,6 +59,8 @@ import {
   confirmedFor,
   countsByLesson,
   lessonsOf,
+  pendingCount,
+  taskFill,
   slotKey,
   slotStatusMap,
   rateFor,
@@ -215,6 +218,7 @@ export default function AdminTaskDetailPage() {
   );
   const unit = rateUnitFor(task);
   const counts = countsByLesson(task, regs);
+  const fill = taskFill(task, regs);
 
   const statusOrder: Record<RegistrationStatus, number> = {
     pending: 0,
@@ -225,7 +229,7 @@ export default function AdminTaskDetailPage() {
   const sortedRegs = [...regs].sort(
     (a, b) => statusOrder[a.status] - statusOrder[b.status],
   );
-  const pendingCount = regs.filter((r) => r.status === "pending").length;
+  const waiting = pendingCount(task, regs);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -244,24 +248,33 @@ export default function AdminTaskDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge
                   variant={
-                    task.status === "open"
-                      ? "success"
-                      : task.status === "cancelled"
-                        ? "destructive"
-                        : "muted"
+                    task.status === "cancelled"
+                      ? "destructive"
+                      : task.status !== "open" || fill.full
+                        ? "muted"
+                        : "success"
                   }
                 >
-                  {t(
-                    task.status === "open"
-                      ? "status_open"
-                      : task.status === "cancelled"
-                        ? "status_cancelled"
-                        : "status_closed",
-                  )}
+                  {task.status === "cancelled"
+                    ? t("status_cancelled")
+                    : task.status !== "open"
+                      ? t("status_closed")
+                      : fill.full
+                        ? t("status_full")
+                        : t("status_open")}
                 </Badge>
                 <Badge variant="muted">
                   {lessons.length} {t("lessons_count_suffix")}
                 </Badge>
+                <Badge variant="muted">
+                  {fill.filled}/{fill.total} {t("slots_filled_suffix")}
+                </Badge>
+                {waiting > 0 && (
+                  <Badge variant="warning" className="gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {waiting} {t("pending_applications")}
+                  </Badge>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -360,7 +373,7 @@ export default function AdminTaskDetailPage() {
         <CardHeader>
           <CardTitle>{t("registrations_title")}</CardTitle>
           <CardDescription>
-            {regs.length} {t("applied_count")} · {pendingCount} {t("pending_short")}
+            {regs.length} {t("applied_count")} · {waiting} {t("pending_short")}
           </CardDescription>
         </CardHeader>
         <CardContent>

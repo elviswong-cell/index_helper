@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   Calendar,
   ClipboardList,
   Clock,
@@ -26,7 +27,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
-import { listAllTasks, cancelTask, reopenTask, deleteTask } from "@/lib/db";
+import {
+  listAllTasks,
+  listRegistrationsByTask,
+  cancelTask,
+  reopenTask,
+  deleteTask,
+} from "@/lib/db";
 import { toDate } from "@/lib/db";
 import {
   formatDateRange,
@@ -39,11 +46,13 @@ import {
   RATE_UNIT_LABEL,
   capacityLabel,
   lessonsOf,
+  pendingCount,
   rateFor,
   rateUnitFor,
+  taskFill,
   taskSlots,
 } from "@/lib/types";
-import type { Task } from "@/lib/types";
+import type { Registration, Task } from "@/lib/types";
 import { useLang } from "@/lib/i18n";
 
 export default function AdminPage() {
@@ -51,6 +60,7 @@ export default function AdminPage() {
   const { toast } = useToast();
   const { t } = useLang();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [regsByTask, setRegsByTask] = useState<Record<string, Registration[]>>({});
   const [refreshing, setRefreshing] = useState(false);
 
   async function refresh() {
@@ -59,6 +69,7 @@ export default function AdminPage() {
     try {
       const data = await listAllTasks();
       setTasks(data);
+      setRegsByTask(await listRegistrationsByTask(data.map((task) => task.id)));
     } catch (err) {
       console.error(err);
       toast("error", t("admin_load_failed"));
@@ -149,6 +160,7 @@ export default function AdminPage() {
             <AdminTaskCard
               key={task.id}
               task={task}
+              regs={regsByTask[task.id] ?? []}
               onAction={async (action) => {
                 try {
                   if (action === "cancel") {
@@ -178,12 +190,16 @@ export default function AdminPage() {
 
 function AdminTaskCard({
   task,
+  regs,
   onAction,
 }: {
   task: Task;
+  regs: Registration[];
   onAction: (action: "cancel" | "reopen" | "delete") => Promise<void>;
 }) {
   const { t } = useLang();
+  const fill = taskFill(task, regs);
+  const waiting = pendingCount(task, regs);
   const lessons = lessonsOf(task);
   const multi = lessons.length > 1;
   const start = toDate(lessons[0].startAt);
@@ -202,23 +218,37 @@ function AdminTaskCard({
           <CardTitle className="text-lg leading-tight line-clamp-2">
             {task.schoolName}
           </CardTitle>
-          <Badge
-            variant={
-              task.status === "open"
-                ? "success"
-                : task.status === "cancelled"
-                  ? "destructive"
-                  : "muted"
-            }
-          >
-            {t(
-              task.status === "open"
-                ? "status_open"
-                : task.status === "cancelled"
-                  ? "status_cancelled"
-                  : "status_closed",
+          <div className="flex shrink-0 items-center gap-1.5">
+            {waiting > 0 && (
+              <Badge
+                variant="warning"
+                title={`${waiting} ${t("pending_applications")}`}
+                className="gap-1"
+              >
+                <AlertCircle className="h-3 w-3" />
+                {waiting}
+              </Badge>
             )}
-          </Badge>
+            <Badge
+              variant={
+                task.status === "cancelled"
+                  ? "destructive"
+                  : task.status !== "open"
+                    ? "muted"
+                    : fill.full
+                      ? "muted"
+                      : "success"
+              }
+            >
+              {task.status === "cancelled"
+                ? t("status_cancelled")
+                : task.status !== "open"
+                  ? t("status_closed")
+                  : fill.full
+                    ? t("status_full")
+                    : t("status_open")}
+            </Badge>
+          </div>
         </div>
         <CardDescription className="space-y-1.5 pt-2">
           <div className="flex items-center gap-2 text-xs">
@@ -238,8 +268,11 @@ function AdminTaskCard({
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Users className="h-3.5 w-3.5" />
-            MT {capacityLabel(task, "mt")} · TA {capacityLabel(task, "ta")}
-            {` · ${taskSlots(task).length} ${t("total_slots_suffix")}`}
+            MT {fill.byPosition.mt.filled}/{fill.byPosition.mt.total} · TA{" "}
+            {fill.byPosition.ta.filled}/{fill.byPosition.ta.total}
+            <span className={fill.full ? "text-muted-foreground" : "text-primary"}>
+              ({fill.full ? t("status_full") : `${fill.left} ${t("slots_left_suffix")}`})
+            </span>
           </div>
         </CardDescription>
       </CardHeader>

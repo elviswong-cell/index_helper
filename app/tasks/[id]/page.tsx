@@ -207,6 +207,7 @@ export default function TaskDetailPage() {
   const pastDeadline = !!deadline && new Date() > deadline;
   const unit = rateUnitFor(task);
   const missing = missingProfileFields(profile);
+  const isFull = openSlots(task, counts).length === 0;
 
   function toggleSlot(lessonId: string, pos: Position) {
     if (slotsLeft(task!, counts, lessonId, pos) === 0) return;
@@ -233,18 +234,20 @@ export default function TaskDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge
                   variant={
-                    isOpen
-                      ? "success"
-                      : task.status === "cancelled"
-                        ? "destructive"
-                        : "muted"
+                    task.status === "cancelled"
+                      ? "destructive"
+                      : !isOpen || isFull
+                        ? "muted"
+                        : "success"
                   }
                 >
-                  {isOpen
-                    ? t("status_open")
-                    : task.status === "cancelled"
-                      ? t("status_cancelled")
-                      : t("status_closed")}
+                  {task.status === "cancelled"
+                    ? t("status_cancelled")
+                    : !isOpen
+                      ? t("status_closed")
+                      : isFull
+                        ? t("status_full")
+                        : t("status_open")}
                 </Badge>
                 {multi && (
                   <Badge variant="muted">

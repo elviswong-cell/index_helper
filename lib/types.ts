@@ -484,6 +484,75 @@ export function countsByLesson(
   return out;
 }
 
+/** How full a whole job is, for the summary shown on list cards. */
+export interface TaskFill {
+  /** Slots this job is hiring, across every lesson. */
+  total: number;
+  /** Slots with a confirmed applicant. */
+  filled: number;
+  /** Slots still open. */
+  left: number;
+  byPosition: Record<Position, { total: number; filled: number; left: number }>;
+  /** No room left anywhere — the job reads as "Full" rather than "Open". */
+  full: boolean;
+}
+
+export function taskFill(task: Task, regs: Registration[]): TaskFill {
+  const counts = countsByLesson(task, regs);
+  const byPosition: TaskFill["byPosition"] = {
+    mt: { total: 0, filled: 0, left: 0 },
+    ta: { total: 0, filled: 0, left: 0 },
+  };
+
+  for (const lesson of lessonsOf(task)) {
+    const cap = capacityOf(task, lesson);
+    for (const position of POSITIONS) {
+      // More confirmations than slots shouldn't happen, but never let an
+      // over-filled lesson report negative room.
+      const taken = Math.min(counts[lesson.id]?.[position] ?? 0, cap[position]);
+      byPosition[position].total += cap[position];
+      byPosition[position].filled += taken;
+      byPosition[position].left += cap[position] - taken;
+    }
+  }
+
+  const total = byPosition.mt.total + byPosition.ta.total;
+  const filled = byPosition.mt.filled + byPosition.ta.filled;
+  return { total, filled, left: total - filled, byPosition, full: total - filled === 0 };
+}
+
+/**
+ * True when this application still has something for the admin to decide.
+ * Task-free, so the header badge can count across every job without loading
+ * them all; use `pendingCount` where the task is at hand.
+ */
+export function needsDecision(reg: Registration): boolean {
+  if (reg.slots && reg.slots.length > 0) {
+    return reg.slots.some(
+      (s) =>
+        (reg.slotStatuses?.[slotKey(s.lessonId, s.position)] ??
+          reg.lessonStatuses?.[s.lessonId] ??
+          reg.status) === "pending",
+    );
+  }
+  const statuses = Object.values(reg.lessonStatuses ?? {});
+  if (statuses.length > 0) return statuses.some((s) => s === "pending");
+  return reg.status === "pending";
+}
+
+/**
+ * Applications still waiting on the admin — anyone with at least one slot
+ * left undecided. A part-approved application still counts while any of its
+ * slots is pending.
+ */
+export function pendingCount(task: Task, regs: Registration[]): number {
+  return regs.filter((reg) =>
+    appliedSlots(reg, task).some(
+      (s) => slotStatusFor(reg, s.lessonId, s.position) === "pending",
+    ),
+  ).length;
+}
+
 /** Remaining room for one slot, never negative. */
 export function slotsLeft(
   task: Task,

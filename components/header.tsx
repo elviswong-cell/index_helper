@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -13,20 +14,53 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
+import { watchAllRegistrations } from "@/lib/db";
+import { needsDecision } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useLang } from "@/lib/i18n";
+
+/**
+ * Live count of applications waiting on the admin. Subscribed rather than
+ * fetched so a new application shows up as a notice without a reload.
+ */
+function usePendingApplications(enabled: boolean): number {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      setCount(0);
+      return;
+    }
+    try {
+      return watchAllRegistrations(
+        (regs) => setCount(regs.filter(needsDecision).length),
+        (err) => {
+          // A denied listener must never break the header.
+          console.error(err);
+          setCount(0);
+        },
+      );
+    } catch (err) {
+      console.error(err);
+      return;
+    }
+  }, [enabled]);
+
+  return count;
+}
 
 export function Header() {
   const { user, signInWithGoogle, signOut, loading } = useAuth();
   const pathname = usePathname();
   const { lang, setLang, t } = useLang();
+  const pending = usePendingApplications(!!user?.isAdmin);
 
   const NAV = [
     { href: "/", label: t("nav_jobs"), icon: Briefcase },
     { href: "/my-registrations", label: t("nav_my_registrations"), icon: CalendarCheck, auth: true },
     { href: "/invoices", label: t("nav_invoices"), icon: Receipt, auth: true },
     { href: "/settings", label: t("nav_settings"), icon: Settings, auth: true },
-    { href: "/admin", label: t("nav_admin"), icon: ShieldCheck, admin: true },
+    { href: "/admin", label: t("nav_admin"), icon: ShieldCheck, admin: true, badge: pending },
   ];
 
   return (
@@ -59,6 +93,14 @@ export function Header() {
               >
                 <Icon className="h-4 w-4" />
                 {item.label}
+                {!!item.badge && (
+                  <span
+                    title={`${item.badge} ${t("pending_applications")}`}
+                    className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--warning))] px-1.5 text-[11px] font-semibold text-white"
+                  >
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -131,6 +173,11 @@ export function Header() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 {item.label}
+                {!!item.badge && (
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--warning))] px-1 text-[10px] font-semibold text-white">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

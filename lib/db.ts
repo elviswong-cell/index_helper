@@ -6,6 +6,7 @@ import {
   deleteDoc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   where,
   orderBy,
@@ -313,6 +314,47 @@ export async function listRegistrationsForTask(
   const snap = await getDocs(q);
   return snap.docs.map(
     (d) => ({ id: d.id, ...(d.data() as Omit<Registration, "id">) }),
+  );
+}
+
+/**
+ * Registrations for several jobs at once, keyed by task id. Used by the list
+ * pages so each card can show how full it is without opening the job.
+ * Queried per task (rather than reading the whole collection) so it works
+ * for signed-out visitors on the public job list.
+ */
+export async function listRegistrationsByTask(
+  taskIds: string[],
+): Promise<Record<string, Registration[]>> {
+  const results = await Promise.all(
+    taskIds.map(async (taskId) => {
+      try {
+        return [taskId, await listRegistrationsForTask(taskId)] as const;
+      } catch {
+        // One unreadable job shouldn't blank out the whole list.
+        return [taskId, [] as Registration[]] as const;
+      }
+    }),
+  );
+  return Object.fromEntries(results);
+}
+
+/**
+ * Live view of every registration, for the admin's "waiting for you" badge.
+ * Returns an unsubscribe function. Admin-only in practice — see Firestore rules.
+ */
+export function watchAllRegistrations(
+  onChange: (regs: Registration[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  if (!db) throw new Error("Firestore not initialized");
+  return onSnapshot(
+    collection(db, "registrations"),
+    (snap) =>
+      onChange(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Registration, "id">) })),
+      ),
+    onError,
   );
 }
 

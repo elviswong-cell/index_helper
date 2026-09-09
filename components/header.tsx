@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -14,39 +14,56 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
-import { watchAllRegistrations } from "@/lib/db";
-import { needsDecision } from "@/lib/types";
+import { watchAllRegistrations, watchAllTasks } from "@/lib/db";
+import { needsDecision, type Registration, type Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useLang } from "@/lib/i18n";
 
 /**
  * Live count of applications waiting on the admin. Subscribed rather than
  * fetched so a new application shows up as a notice without a reload.
+ *
+ * Jobs are watched too, so the count only includes applications the admin can
+ * actually act on: an application whose job was deleted (older ones were left
+ * behind rather than cascaded) or cancelled is not something to decide, and
+ * must not sit in the badge forever.
  */
 function usePendingApplications(enabled: boolean): number {
-  const [count, setCount] = useState(0);
+  const [regs, setRegs] = useState<Registration[]>([]);
+  const [tasks, setTasks] = useState<Map<string, Task>>(new Map());
 
   useEffect(() => {
     if (!enabled) {
-      setCount(0);
+      setRegs([]);
+      setTasks(new Map());
       return;
     }
+    // A denied listener must never break the header.
+    const onError = (err: Error) => console.error(err);
     try {
-      return watchAllRegistrations(
-        (regs) => setCount(regs.filter(needsDecision).length),
-        (err) => {
-          // A denied listener must never break the header.
-          console.error(err);
-          setCount(0);
-        },
+      const stopRegs = watchAllRegistrations(setRegs, onError);
+      const stopTasks = watchAllTasks(
+        (list) => setTasks(new Map(list.map((task) => [task.id, task]))),
+        onError,
       );
+      return () => {
+        stopRegs();
+        stopTasks();
+      };
     } catch (err) {
       console.error(err);
       return;
     }
   }, [enabled]);
 
-  return count;
+  return useMemo(
+    () =>
+      regs.filter((reg) => {
+        const task = tasks.get(reg.taskId);
+        return !!task && task.status !== "cancelled" && needsDecision(reg);
+      }).length,
+    [regs, tasks],
+  );
 }
 
 export function Header() {

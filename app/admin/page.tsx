@@ -36,7 +36,7 @@ import {
 } from "@/lib/db";
 import { toDate } from "@/lib/db";
 import {
-  formatDateRange,
+  formatDayList,
   formatTimeRange,
   formatCurrency,
   durationHours,
@@ -45,6 +45,7 @@ import {
 import {
   RATE_UNIT_LABEL,
   capacityLabel,
+  lessonDays,
   lessonsOf,
   pendingCount,
   rateFor,
@@ -53,6 +54,7 @@ import {
   taskSlots,
 } from "@/lib/types";
 import type { Registration, Task } from "@/lib/types";
+import { LessonCalendarHover } from "@/components/lesson-calendar";
 import { useLang } from "@/lib/i18n";
 
 export default function AdminPage() {
@@ -202,6 +204,7 @@ function AdminTaskCard({
   const waiting = pendingCount(task, regs);
   const lessons = lessonsOf(task);
   const multi = lessons.length > 1;
+  const days = lessonDays(task);
   const start = toDate(lessons[0].startAt);
   const end = toDate(lessons[lessons.length - 1].endAt);
   const hours = roundHours(
@@ -253,7 +256,7 @@ function AdminTaskCard({
         <CardDescription className="space-y-1.5 pt-2">
           <div className="flex items-center gap-2 text-xs">
             <Calendar className="h-3.5 w-3.5" />
-            {formatDateRange(start, end)}
+            <LessonCalendarHover days={days}>{formatDayList(days)}</LessonCalendarHover>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Clock className="h-3.5 w-3.5" />

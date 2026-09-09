@@ -84,8 +84,19 @@ export async function reopenTask(taskId: string): Promise<void> {
   return updateTask(taskId, { status: "open" });
 }
 
+/**
+ * Deletes a job **and its registrations**. Without the cascade the
+ * registrations outlive the job with nothing left to point at, and keep
+ * showing up in the admin's "waiting for review" count forever.
+ * Registrations go first, so a failure can't leave the job gone but its
+ * applications behind.
+ */
 export async function deleteTask(taskId: string): Promise<void> {
   if (!db) throw new Error("Firestore not initialized");
+  const regs = await getDocs(
+    query(collection(db, "registrations"), where("taskId", "==", taskId)),
+  );
+  await Promise.all(regs.docs.map((d) => deleteDoc(d.ref)));
   await deleteDoc(doc(db, "tasks", taskId));
 }
 
@@ -337,6 +348,20 @@ export async function listRegistrationsByTask(
     }),
   );
   return Object.fromEntries(results);
+}
+
+/** Live view of every job. Returns an unsubscribe function. */
+export function watchAllTasks(
+  onChange: (tasks: Task[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  if (!db) throw new Error("Firestore not initialized");
+  return onSnapshot(
+    collection(db, "tasks"),
+    (snap) =>
+      onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Task, "id">) }))),
+    onError,
+  );
 }
 
 /**

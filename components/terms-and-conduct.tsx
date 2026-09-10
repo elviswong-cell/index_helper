@@ -141,7 +141,7 @@ const ZH = {
 } as const;
 
 const EN = {
-  title: "Working rules and duties for Teaching Assistants (TA) and Mentors (MT)",
+  title: "Working rules and duties for Main Tutors (MT) and Teaching Assistants (TA)",
   subtitle: "Please read before applying. Tap to expand.",
   intro:
     "To maintain teaching quality and school discipline, all TAs and MTs must strictly follow the rules below:",
@@ -156,13 +156,13 @@ const EN = {
       desc: [
         "Clothing must be neat and presentable.",
         "Hats are strictly not allowed.",
-        "Male mentors with long hair must tie it back.",
-        "All mentors, male and female, must wear long trousers.",
+        "Male tutors with long hair must tie it back.",
+        "All tutors, male and female, must wear long trousers.",
       ],
     },
     {
       term: "Lesson records",
-      desc: "Photos of the lesson (students working on iPads / laptops, or mentors assisting students) must be uploaded to the designated Google Drive link as a record.",
+      desc: "Photos of the lesson (students working on iPads / laptops, or tutors assisting students) must be uploaded to the designated Google Drive link as a record.",
     },
   ],
   s2Title: "2. Pay and payment schedule",

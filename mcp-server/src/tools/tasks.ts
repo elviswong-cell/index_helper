@@ -47,7 +47,7 @@ const LessonInputSchema = z
 
 const PositionsSchema = z
   .object({
-    mt: z.number().int().min(0).max(999).describe("MT (Lead Mentor) slots, per lesson."),
+    mt: z.number().int().min(0).max(999).describe("MT (Main Tutor) slots, per lesson."),
     ta: z.number().int().min(0).max(999).describe("TA (Teaching Assistant) slots, per lesson."),
   })
   .strict();

@@ -13,7 +13,7 @@ import {
 } from "./types";
 
 const POSITION_EN: Record<Registration["position"], string> = {
-  mt: "MT (Lead Mentor)",
+  mt: "MT (Main Tutor)",
   ta: "TA (Teaching Assistant)",
 };
 

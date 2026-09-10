@@ -78,6 +78,20 @@ function openSlots(task: Task, counts: LessonCounts): Slot[] {
   );
 }
 
+/**
+ * `openSlots`, keeping at most one role per lesson — MT and TA are mutually
+ * exclusive, so nobody can be pre-selected (or bulk-selected) for both on
+ * the same lesson.
+ */
+function openSlotsOneRolePerLesson(task: Task, counts: LessonCounts): Slot[] {
+  const seenLessons = new Set<string>();
+  return openSlots(task, counts).filter((s) => {
+    if (seenLessons.has(s.lessonId)) return false;
+    seenLessons.add(s.lessonId);
+    return true;
+  });
+}
+
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, signInWithGoogle } = useAuth();
@@ -104,9 +118,12 @@ export default function TaskDetailPage() {
         setCounts(nextCounts);
 
         // Default to every slot that still has room — the applicant unticks
-        // the dates and roles they can't cover.
+        // the dates and roles they can't cover. At most one role per lesson,
+        // since MT and TA are mutually exclusive.
         setSelected(
-          openSlots(fetched, nextCounts).map((s) => slotKey(s.lessonId, s.position)),
+          openSlotsOneRolePerLesson(fetched, nextCounts).map((s) =>
+            slotKey(s.lessonId, s.position),
+          ),
         );
         if (user) {
           setMyReg(regs.find((r) => r.userId === user.uid) ?? null);
@@ -212,8 +229,13 @@ export default function TaskDetailPage() {
   function toggleSlot(lessonId: string, pos: Position) {
     if (slotsLeft(task!, counts, lessonId, pos) === 0) return;
     const key = slotKey(lessonId, pos);
+    // MT and TA are mutually exclusive on the same lesson — nobody can be
+    // both at once, so ticking one un-ticks the other for that row.
+    const otherKey = slotKey(lessonId, pos === "mt" ? "ta" : "mt");
     setSelected((prev) =>
-      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key],
+      prev.includes(key)
+        ? prev.filter((x) => x !== key)
+        : [...prev.filter((x) => x !== otherKey), key],
     );
   }
 
@@ -418,7 +440,7 @@ export default function TaskDetailPage() {
                     onToggle={toggleSlot}
                     onSelectAll={() =>
                       setSelected(
-                        openSlots(task, counts).map((s) =>
+                        openSlotsOneRolePerLesson(task, counts).map((s) =>
                           slotKey(s.lessonId, s.position),
                         ),
                       )

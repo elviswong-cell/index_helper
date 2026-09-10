@@ -328,7 +328,7 @@ export const dict: Dict = {
   apply_failed: { en: "Application failed", zh: "報名失敗" },
   cancel_failed: { en: "Cancel failed", zh: "取消失敗" },
   deadline_closed_paren: { en: " (closed)", zh: "（已截止）" },
-  pos_mt: { en: "MT (Lead Mentor)", zh: "MT 主導師" },
+  pos_mt: { en: "MT (Main Tutor)", zh: "MT 主導師" },
   pos_ta: { en: "TA (Teaching Assistant)", zh: "TA 助教" },
   invalid_phone: { en: "Please enter a valid phone number", zh: "請輸入有效的電話號碼" },
   phone_save_success: { en: "Phone number saved", zh: "電話號碼已儲存" },

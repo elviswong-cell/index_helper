@@ -14,7 +14,10 @@ service cloud.firestore {
     // Registrations: users create/cancel their own; admins review everyone's
     match /registrations/{regId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.termsVersion == "2026-10-08" &&
+        request.resource.data.termsAcceptedAt == request.time;
       allow update, delete: if request.auth != null &&
         (resource.data.userId == request.auth.uid || isAdmin());
     }
@@ -38,3 +41,4 @@ service cloud.firestore {
     }
   }
 }
+

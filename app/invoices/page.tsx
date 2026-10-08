@@ -173,7 +173,10 @@ export default function InvoicesPage() {
     Math.round(chosen.reduce((sum, b) => sum + b.item.amount, 0) * 100) / 100;
   const missing = missingProfileFields(profile);
   const existingForMonth = invoices.filter(
-    (inv) => inv.month === month && inv.status !== "superseded",
+    (inv) =>
+      inv.month === month &&
+      inv.status !== "superseded" &&
+      inv.status !== "cancelled",
   );
 
   function draft(): InvoiceDraft {
@@ -191,6 +194,10 @@ export default function InvoicesPage() {
 
   async function handleSend() {
     if (!user || chosen.length === 0) return;
+    if (existingForMonth.length > 0) {
+      toast("error", t("invoice_month_exists"));
+      return;
+    }
     if (missing.length > 0) {
       toast("error", t("profile_required_toast"));
       return;
@@ -418,7 +425,12 @@ export default function InvoicesPage() {
                   </Button>
                   <Button
                     type="button"
-                    disabled={sending || chosen.length === 0 || missing.length > 0}
+                    disabled={
+                      sending ||
+                      chosen.length === 0 ||
+                      missing.length > 0 ||
+                      existingForMonth.length > 0
+                    }
                     onClick={handleSend}
                     className="gap-2"
                   >
@@ -487,4 +499,5 @@ export default function InvoicesPage() {
     </div>
   );
 }
+
 

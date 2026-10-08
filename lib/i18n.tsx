@@ -186,8 +186,8 @@ export const dict: Dict = {
   billing_month: { en: "Billing month", zh: "帳單月份" },
   already_invoiced: { en: "Already invoiced", zh: "已開立" },
   invoice_month_exists: {
-    en: "You've already sent an invoice for this month. Sending another replaces it — the latest one is the one that counts.",
-    zh: "你已為此月份遞交過 Invoice。再次遞交會取代舊的，我們以最新一張為準。",
+    en: "An invoice for this month has already been sent. An admin must delete or cancel it before you can send this month again.",
+    zh: "此月份已提交 Invoice。管理員刪除或取消該 Invoice 後，才可以再次提交此月份。",
   },
   total_label: { en: "Total", zh: "合計" },
   preview_pdf: { en: "Download preview", zh: "下載預覽" },
@@ -211,6 +211,7 @@ export const dict: Dict = {
   invoice_submitted: { en: "Invoice received", zh: "已收到 Invoice" },
   invoice_paid: { en: "Paid", zh: "已出糧" },
   invoice_superseded: { en: "Replaced", zh: "已被取代" },
+  invoice_cancelled: { en: "Cancelled", zh: "已取消" },
   download: { en: "Download", zh: "下載" },
   cutoff_before: {
     en: "The 23rd of each month is the cut-off. Invoices sent on or before the 23rd are paid this month.",
@@ -239,8 +240,14 @@ export const dict: Dict = {
   filter_month: { en: "Month", zh: "月份" },
   mark_paid: { en: "Mark paid", zh: "標記已出糧" },
   mark_unpaid: { en: "Undo payment", zh: "取消已出糧" },
+  cancel_invoice: { en: "Cancel invoice", zh: "取消 Invoice" },
   invoice_marked_paid: { en: "Marked as paid", zh: "已標記為已出糧" },
   invoice_marked_unpaid: { en: "Payment undone", zh: "已取消出糧標記" },
+  invoice_cancelled_toast: { en: "Invoice cancelled", zh: "Invoice 已取消" },
+  invoice_cancel_confirm: {
+    en: "Cancel this invoice? The employee will be able to submit this month again.",
+    zh: "確定取消此 Invoice？取消後員工可以重新提交該月份。",
+  },
   invoice_deleted: { en: "Invoice deleted", zh: "Invoice 已刪除" },
   invoice_delete_confirm: {
     en: "Delete this invoice? This cannot be undone.",
@@ -562,3 +569,4 @@ export function useLang(): LangContextValue {
   if (!ctx) throw new Error("useLang must be used within LanguageProvider");
   return ctx;
 }
+

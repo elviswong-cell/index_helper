@@ -443,9 +443,8 @@ export async function listAllRegistrations(): Promise<Registration[]> {
 // ---------- Invoices ----------
 
 /**
- * Records an invoice the freelancer just sent. House rule is one invoice per
- * person per month, so any earlier invoice for the same month is marked
- * superseded rather than deleted — the paper trail stays intact.
+ * Records an invoice the freelancer just sent. A person may have only one
+ * active invoice per month; an admin must delete/cancel it before resubmission.
  */
 export async function submitInvoice(args: {
   userId: string;
@@ -461,8 +460,14 @@ export async function submitInvoice(args: {
   if (args.items.length === 0) throw new Error("請至少選擇一堂已完成的課堂");
 
   const previous = (await listInvoicesForUser(args.userId)).filter(
-    (inv) => inv.month === args.month && inv.status !== "superseded",
+    (inv) =>
+      inv.month === args.month &&
+      inv.status !== "superseded" &&
+      inv.status !== "cancelled",
   );
+  if (previous.length > 0) {
+    throw new Error("此月份已提交 Invoice，請先由管理員刪除或取消後再重新提交");
+  }
 
   const total =
     Math.round(args.items.reduce((sum, i) => sum + i.amount, 0) * 100) / 100;
@@ -473,10 +478,6 @@ export async function submitInvoice(args: {
     status: "submitted" as InvoiceStatus,
     submittedAt: serverTimestamp(),
   });
-
-  for (const inv of previous) {
-    await updateDoc(doc(db, "invoices", inv.id), { status: "superseded" });
-  }
 
   return ref.id;
 }
@@ -526,6 +527,14 @@ export async function markInvoiceUnpaid(invoiceId: string): Promise<void> {
   });
 }
 
+export async function cancelInvoice(invoiceId: string): Promise<void> {
+  if (!db) throw new Error("Firestore not initialized");
+  await updateDoc(doc(db, "invoices", invoiceId), {
+    status: "cancelled" as InvoiceStatus,
+    cancelledAt: serverTimestamp(),
+  });
+}
+
 export async function deleteInvoice(invoiceId: string): Promise<void> {
   if (!db) throw new Error("Firestore not initialized");
   await deleteDoc(doc(db, "invoices", invoiceId));
@@ -535,7 +544,7 @@ export async function deleteInvoice(invoiceId: string): Promise<void> {
 export function invoicedKeys(invoices: Invoice[]): Set<string> {
   const keys = new Set<string>();
   for (const inv of invoices) {
-    if (inv.status === "superseded") continue;
+    if (inv.status === "superseded" || inv.status === "cancelled") continue;
     for (const item of inv.items) {
       for (const lessonId of item.lessonIds ?? [item.lessonId]) {
         keys.add(itemKey(item.taskId, lessonId));
@@ -548,4 +557,5 @@ export function invoicedKeys(invoices: Invoice[]): Set<string> {
   }
   return keys;
 }
+
 

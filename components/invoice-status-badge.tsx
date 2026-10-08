@@ -18,5 +18,9 @@ export function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
   if (status === "superseded") {
     return <Badge variant="muted">{t("invoice_superseded")}</Badge>;
   }
+  if (status === "cancelled") {
+    return <Badge variant="destructive">{t("invoice_cancelled")}</Badge>;
+  }
   return <Badge variant="warning">{t("invoice_submitted")}</Badge>;
 }
+

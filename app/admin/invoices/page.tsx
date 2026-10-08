@@ -10,6 +10,7 @@ import {
   Receipt,
   Trash2,
   Undo2,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +23,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toaster-context";
 import {
+  cancelInvoice,
   deleteInvoice,
   listAllInvoices,
   markInvoicePaid,
@@ -144,7 +146,9 @@ export default function AdminInvoicesPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            {(["submitted", "paid", "superseded", "all"] as Filter[]).map((f) => (
+            {(
+              ["submitted", "paid", "cancelled", "superseded", "all"] as Filter[]
+            ).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -160,9 +164,11 @@ export default function AdminInvoicesPage() {
                     ? "filter_all"
                     : f === "paid"
                       ? "invoice_paid"
-                      : f === "superseded"
-                        ? "invoice_superseded"
-                        : "invoice_submitted",
+                      : f === "cancelled"
+                        ? "invoice_cancelled"
+                        : f === "superseded"
+                          ? "invoice_superseded"
+                          : "invoice_submitted",
                 )}
               </button>
             ))}
@@ -289,6 +295,25 @@ export default function AdminInvoicesPage() {
                           {t("mark_unpaid")}
                         </Button>
                       )}
+                      {(inv.status === "submitted" || inv.status === "paid") && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          className="gap-2 text-muted-foreground hover:text-destructive"
+                          onClick={() => {
+                            if (confirm(t("invoice_cancel_confirm"))) {
+                              act(
+                                () => cancelInvoice(inv.id),
+                                "invoice_cancelled_toast",
+                              );
+                            }
+                          }}
+                        >
+                          <XCircle className="h-4 w-4" />
+                          {t("cancel_invoice")}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -322,3 +347,4 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+

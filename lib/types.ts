@@ -159,8 +159,13 @@ export function isProfileComplete(
  * paid      = admin confirmed payment
  * superseded = replaced by a later invoice for the same month (house rule:
  *              one invoice per person per month, the latest one wins)
+ * cancelled = admin cancelled it, allowing the month to be submitted again
  */
-export type InvoiceStatus = "submitted" | "paid" | "superseded";
+export type InvoiceStatus =
+  | "submitted"
+  | "paid"
+  | "superseded"
+  | "cancelled";
 
 /** One completed lesson billed on an invoice. Snapshotted at submit time. */
 export interface InvoiceItem {
@@ -197,12 +202,14 @@ export interface Invoice {
   submittedAt: Timestamp | Date;
   paidAt?: Timestamp | Date;
   paidBy?: string;
+  cancelledAt?: Timestamp | Date;
 }
 
 export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
   submitted: "已收到 Invoice",
   paid: "已出糧",
   superseded: "已被新 Invoice 取代",
+  cancelled: "已取消",
 };
 
 /** Monthly cut-off: invoices sent on or before this day are paid that month. */
@@ -758,4 +765,5 @@ export function confirmedFor(
       ) && slotStatusFor(r, lessonId, position) === "confirmed",
   );
 }
+
 

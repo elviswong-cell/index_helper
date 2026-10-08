@@ -17,10 +17,12 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import {
+  APPLICATION_TERMS_VERSION,
   aggregateStatus,
   appliedSlots,
   capacityFor,
   countsByLesson,
+  dailyBillingKey,
   findLesson,
   itemKey,
   lessonIdsFor,
@@ -139,8 +141,11 @@ export async function registerForTask(args: {
    * every pair must be a slot the task is actually hiring for.
    */
   slots: Slot[];
+  /** Must come from the confirmation control in the terms dialog. */
+  acceptedTerms: boolean;
 }): Promise<{ id: string; status: RegistrationStatus }> {
   if (!db) throw new Error("Firestore not initialized");
+  if (!args.acceptedTerms) throw new Error("請先閱讀並同意工作條款及聘用須知");
 
   // SCRC and payment details must be on file before anyone works a job.
   const profile = await getUserProfile(args.userId);
@@ -197,6 +202,8 @@ export async function registerForTask(args: {
     lessonIds,
     lessonStatuses,
     status,
+    termsAcceptedAt: serverTimestamp(),
+    termsVersion: APPLICATION_TERMS_VERSION,
     createdAt: serverTimestamp(),
   });
 
@@ -529,7 +536,16 @@ export function invoicedKeys(invoices: Invoice[]): Set<string> {
   const keys = new Set<string>();
   for (const inv of invoices) {
     if (inv.status === "superseded") continue;
-    for (const item of inv.items) keys.add(itemKey(item.taskId, item.lessonId));
+    for (const item of inv.items) {
+      for (const lessonId of item.lessonIds ?? [item.lessonId]) {
+        keys.add(itemKey(item.taskId, lessonId));
+      }
+      if (item.rateUnit === "daily") {
+        // Also cover legacy daily invoices, which stored only one lesson ID.
+        keys.add(dailyBillingKey(item.taskId, item.startAt, item.position));
+      }
+    }
   }
   return keys;
 }
+

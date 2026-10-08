@@ -108,6 +108,9 @@ export interface Registration {
   lessonStatuses?: Record<string, RegistrationStatus>;
   /** Aggregate of every slot decision — see `aggregateStatus()`. */
   status: RegistrationStatus;
+  /** Audit record for the terms gate shown immediately before submission. */
+  termsAcceptedAt?: Timestamp | Date;
+  termsVersion?: string;
   createdAt: Timestamp | Date;
   confirmedAt?: Timestamp | Date;
 }
@@ -163,6 +166,8 @@ export type InvoiceStatus = "submitted" | "paid" | "superseded";
 export interface InvoiceItem {
   taskId: string;
   lessonId: string;
+  /** All sessions covered by this row. Daily rows can combine same-day sessions. */
+  lessonIds?: string[];
   /** Lesson start — kept so the invoice can be re-rendered and sorted. */
   startAt: Timestamp | Date;
   endAt: Timestamp | Date;
@@ -202,6 +207,9 @@ export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
 
 /** Monthly cut-off: invoices sent on or before this day are paid that month. */
 export const INVOICE_CUTOFF_DAY = 23;
+
+/** Bump this whenever the authoritative application terms change. */
+export const APPLICATION_TERMS_VERSION = "2026-10-08";
 
 export interface AppUser {
   uid: string;
@@ -592,6 +600,19 @@ export function monthKey(value: Timestamp | Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** One billable day for a task and role, using the browser's local date. */
+export function dailyBillingKey(
+  taskId: string,
+  value: Timestamp | Date,
+  position: Position,
+): string {
+  const d = asDate(value);
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+  return `${taskId}::${date}::${position}::daily`;
+}
+
 /**
  * Lessons a person may bill for: the admin confirmed them AND the lesson has
  * already finished. Lessons still to come are deliberately excluded — the
@@ -675,6 +696,49 @@ export function buildInvoiceItem(
   };
 }
 
+/**
+ * Convert confirmed sessions into invoice rows. Hourly work stays per session;
+ * daily work is one row and one daily rate per task/date/role, even when the
+ * course has multiple sessions on that date.
+ */
+export function buildInvoiceItems(
+  entries: Array<{ task: Task; lesson: Lesson; position: Position }>,
+): InvoiceItem[] {
+  const items: InvoiceItem[] = [];
+  const dailyRows = new Map<string, InvoiceItem>();
+
+  for (const { task, lesson, position } of entries) {
+    const item = buildInvoiceItem(task, lesson, position);
+    if (item.rateUnit !== "daily") {
+      items.push(item);
+      continue;
+    }
+
+    const key = dailyBillingKey(task.id, lesson.startAt, position);
+    const existing = dailyRows.get(key);
+    if (!existing) {
+      const first = { ...item, lessonIds: [lesson.id] };
+      dailyRows.set(key, first);
+      items.push(first);
+      continue;
+    }
+
+    existing.lessonIds = [...(existing.lessonIds ?? [existing.lessonId]), lesson.id];
+    existing.hours = Math.round((existing.hours + item.hours) * 100) / 100;
+    if (asDate(item.startAt).getTime() < asDate(existing.startAt).getTime()) {
+      existing.startAt = item.startAt;
+    }
+    if (asDate(item.endAt).getTime() > asDate(existing.endAt).getTime()) {
+      existing.endAt = item.endAt;
+    }
+    if (item.courseName && !existing.courseName.split(" / ").includes(item.courseName)) {
+      existing.courseName = [existing.courseName, item.courseName].filter(Boolean).join(" / ");
+    }
+  }
+
+  return items;
+}
+
 /** Stable key for "this lesson of this job", used to dedupe across invoices. */
 export function itemKey(taskId: string, lessonId: string): string {
   return `${taskId}::${lessonId}`;
@@ -694,3 +758,4 @@ export function confirmedFor(
       ) && slotStatusFor(r, lessonId, position) === "confirmed",
   );
 }
+

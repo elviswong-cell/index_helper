@@ -20,7 +20,10 @@ import {
   Users,
   Video,
 } from "lucide-react";
-import { TermsAndConduct } from "@/components/terms-and-conduct";
+import {
+  ApplicationTermsDialog,
+  TermsAndConduct,
+} from "@/components/terms-and-conduct";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -104,6 +107,7 @@ export default function TaskDetailPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   async function refresh() {
@@ -169,8 +173,10 @@ export default function TaskDetailPage() {
         userName: user.displayName ?? user.email ?? t("anonymous"),
         userPhone: profile?.phone ?? "",
         slots: stillOpen,
+        acceptedTerms: true,
       });
       toast("success", t("app_submitted"));
+      setTermsOpen(false);
       await refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("apply_failed");
@@ -457,7 +463,7 @@ export default function TaskDetailPage() {
                   </div>
 
                   <Button
-                    onClick={handleRegister}
+                    onClick={() => setTermsOpen(true)}
                     disabled={submitting || selected.length === 0}
                     className="w-full sm:w-auto"
                   >
@@ -479,6 +485,12 @@ export default function TaskDetailPage() {
       </Card>
 
       <TermsAndConduct />
+      <ApplicationTermsDialog
+        open={termsOpen}
+        onOpenChange={setTermsOpen}
+        onAccept={handleRegister}
+        submitting={submitting}
+      />
     </div>
   );
 }
@@ -729,3 +741,4 @@ function InfoRow({
     </div>
   );
 }
+
